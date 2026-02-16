@@ -182,6 +182,19 @@ This means:
 
 If you see errors like `listen tcp :2096: bind: address already in use`, this means another process is using port 2096:
 
+**Quick Fix - Use the automated fix script:**
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-port-2096.sh)
+```
+
+This script will:
+- Diagnose what's using port 2096
+- Check s-ui database for conflicting configurations
+- Attempt to automatically fix the issue
+- Provide detailed guidance if manual intervention is needed
+
+**Manual Diagnosis:**
+
 1. **Check what's using the port:**
    ```bash
    lsof -i :2096
@@ -290,6 +303,12 @@ bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/random
 **Uninstall**:x:
 ```
 bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
+```
+
+**Fix Port Conflicts**:wrench:
+If you experience port 2096 binding errors:
+```
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-port-2096.sh)
 ```
 
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
