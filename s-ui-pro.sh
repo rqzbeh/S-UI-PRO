@@ -261,6 +261,13 @@ fi
 ###################################Update Db##################################
 UPDATE_SUIDB(){
 if [[ -f $SUIDB ]]; then
+	# First, let's check if there are any settings that might be causing port 2096 binding
+	msg_inf "Checking s-ui database for port configurations..."
+	
+	# Display all current port-related settings for debugging
+	msg_inf "Current port settings in database:"
+	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR key LIKE '%Port%';" 2>/dev/null || true
+	
 	sqlite3 $SUIDB <<EOF
 	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ); 
 	INSERT INTO "settings" ("key", "value") VALUES ("webPort",  "${PORT}");
@@ -268,6 +275,22 @@ if [[ -f $SUIDB ]]; then
 	INSERT INTO "settings" ("key", "value") VALUES ("webKeyFile", "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webPath", "/${RNDSTR}/");
 EOF
+	
+	# Check if there's a subPort or subscriptionPort setting and remove it
+	# since nginx will handle port 2096 instead
+	msg_inf "Removing any subscription port settings (nginx will handle port 2096)..."
+	sqlite3 $SUIDB "DELETE FROM settings WHERE key='subPort' OR key='subscriptionPort' OR key='subListenPort';" 2>/dev/null || true
+	
+	# Also check for any inbound configurations that might be using port 2096
+	msg_inf "Checking for inbounds using port 2096..."
+	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null || echo "0")
+	if [ "$INBOUNDS_2096" != "0" ]; then
+		msg_err "Warning: Found $INBOUNDS_2096 inbound(s) configured to use port 2096"
+		msg_err "These will conflict with nginx. Please reconfigure them to use different ports."
+		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null || true
+	fi
+	
+	msg_ok "Database updated successfully"
 else
 	msg_err "s-ui.db file not exist! Maybe s-ui isn't installed." && exit 1;
 fi
@@ -275,6 +298,22 @@ fi
 ###################################Install Panel#########################
 if systemctl is-active --quiet s-ui; then
 	UPDATE_SUIDB
+	
+	# Before restarting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui restart. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN | grep -q nginx 2>/dev/null; then
+		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
+	msg_inf "Restarting s-ui service..."
 	s-ui restart
 	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
@@ -287,6 +326,22 @@ else
   		systemctl enable sing-box.service
     		systemctl enable s-ui.service 
 	fi
+	
+	# Before starting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui start. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN | grep -q nginx 2>/dev/null; then
+		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
+	msg_inf "Starting s-ui service..."
 	s-ui restart
 	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
@@ -300,6 +355,32 @@ for i in {1..30}; do
 		SERVICE_STARTED=true
 		break
 	fi
+	
+	# Check if s-ui failed due to port conflict
+	if systemctl is-failed --quiet s-ui; then
+		msg_err "s-ui service failed to start. Checking for port conflicts..."
+		
+		# Check recent logs for port 2096 error
+		if journalctl -u s-ui -n 20 --no-pager | grep -q "listen tcp.*:2096.*address already in use"; then
+			msg_err "ERROR: s-ui is trying to bind to port 2096, which is already used by nginx!"
+			msg_err "This is a configuration issue with s-ui."
+			msg_err ""
+			msg_err "SOLUTION:"
+			msg_err "1. Stop both services:"
+			msg_err "   systemctl stop s-ui nginx"
+			msg_err "2. Check s-ui database for port 2096 configuration:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM settings WHERE value LIKE '%2096%';\""
+			msg_err "3. Check for inbounds using port 2096:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM inbounds WHERE port=2096;\""
+			msg_err "4. Remove any port 2096 configurations and restart:"
+			msg_err "   systemctl start nginx && systemctl start s-ui"
+			msg_err ""
+			msg_err "For support, visit: https://github.com/alireza0/s-ui"
+			exit 1
+		fi
+		break
+	fi
+	
 	sleep 1
 done
 
