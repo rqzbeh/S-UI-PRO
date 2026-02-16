@@ -86,9 +86,63 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
     fuser -k 2096/tcp 2>/dev/null || true
     sleep 1
     
-    # Remove subscription port settings from database
-    msg_inf "Removing subscription port settings from database..."
-    sqlite3 $SUIDB "DELETE FROM settings WHERE key='subPort' OR key='subscriptionPort' OR key='subListenPort';" 2>/dev/null || true
+    # Get current webPort setting
+    WEBPORT=$(sqlite3 $SUIDB "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null || echo "")
+    
+    if [ -z "$WEBPORT" ]; then
+        msg_err "Could not determine s-ui webPort from database"
+        msg_err "Please check s-ui installation"
+        exit 1
+    fi
+    
+    # Generate a DIFFERENT random port for subscription service
+    msg_inf "Generating random port for subscription service..."
+    while true; do 
+        SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
+        if [ "$SUBPORT" != "$WEBPORT" ]; then
+            status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
+            if [ "${status}" != "0" ]; then
+                break
+            fi
+        fi
+    done
+    
+    # Try to detect subscription domain from nginx config
+    SUBDOMAIN=$(grep -r "listen 2096" /etc/nginx/sites-enabled/ 2>/dev/null | grep "server_name" -A 1 | grep -oP 'server_name \K[^;]+' | head -1 | tr -d ' ')
+    
+    if [ -z "$SUBDOMAIN" ]; then
+        msg_inf "Could not detect subscription domain from nginx config"
+        msg_inf "Subscription URLs will use server hostname"
+        SUBDOMAIN=""
+        SUBURI=""
+    else
+        msg_inf "Detected subscription domain: ${SUBDOMAIN}"
+        SUBURI="https://${SUBDOMAIN}:2096"
+    fi
+    
+    # Configure subscription service with DIFFERENT port than web panel
+    msg_inf "Configuring s-ui subscription service..."
+    msg_inf "Web panel port: ${WEBPORT} (nginx forwards 443 → ${WEBPORT})"
+    msg_inf "Subscription port: ${SUBPORT} (nginx forwards 2096 → ${SUBPORT})"
+    
+    if [ -n "$SUBDOMAIN" ]; then
+        sqlite3 $SUIDB <<SQLEOF
+        DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile', 'subDomain', 'subURI', 'subPath');
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${SUBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${SUBDOMAIN}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subURI", "${SUBURI}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subPath", "/sub/");
+SQLEOF
+    else
+        sqlite3 $SUIDB <<SQLEOF
+        DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile');
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${SUBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+SQLEOF
+    fi
     
     # Update any inbounds using port 2096
     if [ "$INBOUNDS_2096" != "0" ]; then
