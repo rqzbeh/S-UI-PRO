@@ -36,7 +36,7 @@ During installation, you'll be prompted to enter:
 >
 > Main domain handles VPN connections on port 443
 >
-> Subscription domain provides subscription service on port 2096
+> Subscription domain provides subscription service on port 2096 (for backward compatibility)
 
 ---
 
@@ -256,17 +256,25 @@ This script will:
 The subscription service provides VPN configuration links for your clients.
 
 **How It Works:**
-- **External Access**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
+- **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
+- **Port 2096**: Required for backward compatibility with existing subscription links
 - **Architecture**: 
   - Nginx listens on port 2096 with SSL (using your Cloudflare certificates)
   - Nginx proxies requests to s-ui's internal subscription service (random port 10000-59151)
-  - s-ui generates subscription configs pointing to your main VPN domain (port 443)
+  - s-ui subscription service generates configs pointing to your main VPN domain (port 443)
   
 **Why This Design:**
-- **No Port Conflicts**: Nginx owns port 2096, s-ui uses an internal port
+- **Backward Compatible**: Existing user links on port 2096 continue to work
+- **No Port Conflicts**: Nginx owns port 2096, s-ui uses an internal port (e.g., 23451)
 - **SSL Handled by Nginx**: Simplifies s-ui configuration, uses your existing certificates
 - **Separate Domain**: Subscription service can use different domain than VPN service
 - **Secure**: All traffic encrypted via nginx SSL termination
+
+**Example URLs:**
+```
+Main Panel:    https://nl-main.z3df1lter.uk/ohiLp5
+Subscription:  https://sub.rqzbe.ir:2096/sub/USERNAME?format=json
+```
 
 **Example Flow:**
 ```
@@ -274,10 +282,47 @@ Client requests: https://sub.rqzbe.ir:2096/sub/USERNAME?format=json
        ↓
 Nginx (port 2096 - SSL termination with Cloudflare certs)
        ↓
+Proxy to http://127.0.0.1:SUBPORT (e.g., 23451)
+       ↓
 s-ui subscription service (internal port, generates configs)
        ↓
 Returns: VPN configs pointing to https://nl-main.z3df1lter.uk:443
 ```
+
+**Key Configuration:**
+- s-ui web panel: Random internal port (e.g., 15234) - proxied by nginx on main domain
+- s-ui subscription: Random internal port (e.g., 23451) - proxied by nginx on port 2096
+- nginx: Owns external ports 80, 443, and 2096
+- No port conflicts between nginx and s-ui
+
+**Backward Compatibility:**
+
+If you have **existing subscription links** with port 2096, they will continue to work! The configuration ensures:
+
+1. **Existing Links Work**: `https://old-domain.com:2096/sub/USER` → still works
+2. **New Links Work**: `https://new-domain.com:2096/sub/USER` → works the same way
+3. **Different Domains**: You can use a completely different domain for subscription service
+
+**How to Migrate Subscription Domain:**
+
+If you want to change your subscription domain (e.g., from `old-sub.domain.com` to `sub.rqzbe.ir`):
+
+1. **Install with new domain**:
+   ```bash
+   bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
+   # Enter new subscription domain when prompted
+   ```
+
+2. **Update DNS**: Point new domain to your VPS IP
+
+3. **Add SSL certificate**: Place certs at `/root/cert/sub.rqzbe.ir/`
+
+4. **Old links still work**: Users with old domain links can continue using them
+   - Old: `https://old-sub.domain.com:2096/sub/USER`
+   - New: `https://sub.rqzbe.ir:2096/sub/USER`
+   - Both work simultaneously if both domains point to your server
+
+5. **Gradual migration**: Update user links at your own pace
 
 ---
 

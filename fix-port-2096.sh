@@ -1,7 +1,7 @@
 #!/bin/bash
-############### s-ui Port 2096 Conflict Fixer ##############
-# This script helps diagnose and fix port 2096 binding conflicts
-# Run this if you're getting "listen tcp :2096: bind: address already in use" errors
+############### s-ui Port Configuration Helper ##############
+# This script helps configure s-ui to avoid port conflicts
+# The new setup uses only ports 80 and 443 (standard HTTPS)
 
 [[ $EUID -ne 0 ]] && echo "Please run as root!" && exit 1
 
@@ -10,9 +10,9 @@ msg_err() { echo -e "\e[1;41m $1 \e[0m";}
 msg_inf() { echo -e "\e[1;34m$1\e[0m";}
 
 echo
-msg_inf "╔═╗   ╦ ╦╦   ╔═╗╔═╗╦═╗╔╦╗  ╔═╗╦═╗ ╦╔═╗╦═╗"
-msg_inf "╚═╗───║ ║║───╠═╝║ ║╠╦╝ ║───╠╣ ║╔╝ ║╣ ╠╦╝"
-msg_inf "╚═╝   ╚═╝╩   ╩  ╚═╝╩╚═ ╩   ╚  ╩╚═╩╚═╝╩╚═"
+msg_inf "╔═╗   ╦ ╦╦   ╔═╗╔═╗╦═╗╔╦╗  ╦ ╦╔═╗╦  ╔═╗╔═╗╦═╗"
+msg_inf "╚═╗───║ ║║───╠═╝║ ║╠╦╝ ║───╠═╣║╣ ║  ╠═╝║╣ ╠╦╝"
+msg_inf "╚═╝   ╚═╝╩   ╩  ╚═╝╩╚═ ╩   ╩ ╩╚═╝╩═╝╩  ╚═╝╩╚═"
 echo
 
 SUIDB="/usr/local/s-ui/db/s-ui.db"
@@ -24,30 +24,26 @@ if [[ ! -f $SUIDB ]]; then
     exit 1
 fi
 
-msg_inf "Step 1: Checking what's using port 2096..."
-if lsof -Pi :2096 -sTCP:LISTEN >/dev/null 2>&1; then
-    lsof -Pi :2096 -sTCP:LISTEN
-    echo
-else
-    msg_ok "Port 2096 is currently free"
-fi
-
-msg_inf "Step 2: Checking s-ui service status..."
-systemctl status s-ui --no-pager -l | head -20
+msg_inf "Current Configuration Overview"
+msg_inf "=============================="
 echo
 
-msg_inf "Step 3: Checking recent s-ui logs for port errors..."
-if journalctl -u s-ui -n 30 --no-pager | grep -i "2096"; then
-    echo
-    msg_err "Found port 2096 references in s-ui logs"
-else
-    msg_ok "No port 2096 errors in recent logs"
-fi
+msg_inf "Port Usage:"
+echo "- Port 80:  HTTP (redirects to HTTPS)"
+echo "- Port 443: HTTPS (handles BOTH main and subscription domains via SNI)"
 echo
 
-msg_inf "Step 4: Checking s-ui database for port 2096 settings..."
-echo "Port-related settings:"
-sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR CAST(value AS TEXT)='2096';" 2>/dev/null || msg_err "Failed to query database"
+msg_inf "How it works:"
+echo "1. Nginx listens on port 443"
+echo "2. Uses SNI (Server Name Indication) to route by domain:"
+echo "   - Main domain → s-ui web panel (internal port)"
+echo "   - Sub domain  → s-ui subscription service (internal port)"
+echo "3. s-ui runs on internal ports only (NO external port binding)"
+echo
+
+msg_inf "Checking s-ui service status..."
+systemctl status s-ui --no-pager -l | head -15
+echo
 echo
 
 echo "Inbounds using port 2096:"
