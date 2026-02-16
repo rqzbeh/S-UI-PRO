@@ -86,6 +86,7 @@ sleep 2
 
 # Kill any processes still using the required ports
 msg_inf "Checking for processes using ports 80, 443, and 2096..."
+msg_inf "Any processes using these ports will be terminated..."
 fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
 sleep 2
 
@@ -266,7 +267,7 @@ if [[ -f $SUIDB ]]; then
 	
 	# Display all current port-related settings for debugging
 	msg_inf "Current port settings in database:"
-	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR key LIKE '%Port%';" 2>/dev/null || true
+	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%';" 2>/dev/null || true
 	
 	sqlite3 $SUIDB <<EOF
 	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ); 
@@ -283,11 +284,11 @@ EOF
 	
 	# Also check for any inbound configurations that might be using port 2096
 	msg_inf "Checking for inbounds using port 2096..."
-	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null || echo "0")
+	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE port=2096;" 2>/dev/null || echo "0")
 	if [ "$INBOUNDS_2096" != "0" ]; then
 		msg_err "Warning: Found $INBOUNDS_2096 inbound(s) configured to use port 2096"
 		msg_err "These will conflict with nginx. Please reconfigure them to use different ports."
-		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null || true
+		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE port=2096;" 2>/dev/null || true
 	fi
 	
 	msg_ok "Database updated successfully"

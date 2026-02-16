@@ -47,14 +47,14 @@ echo
 
 msg_inf "Step 4: Checking s-ui database for port 2096 settings..."
 echo "Port-related settings:"
-sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR key LIKE '%Port%' OR value LIKE '%2096%';" 2>/dev/null || msg_err "Failed to query database"
+sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR value='2096';" 2>/dev/null || msg_err "Failed to query database"
 echo
 
 echo "Inbounds using port 2096:"
-INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null || echo "0")
+INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE port=2096;" 2>/dev/null || echo "0")
 if [ "$INBOUNDS_2096" != "0" ]; then
     msg_err "Found $INBOUNDS_2096 inbound(s) using port 2096:"
-    sqlite3 $SUIDB "SELECT id, remark, port, listen FROM inbounds WHERE listen LIKE '%2096%' OR port=2096;" 2>/dev/null
+    sqlite3 $SUIDB "SELECT id, remark, port, listen FROM inbounds WHERE port=2096;" 2>/dev/null
     echo
     msg_err "These inbounds will conflict with nginx on port 2096!"
     msg_inf "You should change them to use different ports (e.g., 10001, 10002, etc.)"
