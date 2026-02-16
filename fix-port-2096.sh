@@ -86,9 +86,24 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
     fuser -k 2096/tcp 2>/dev/null || true
     sleep 1
     
-    # Remove subscription port settings from database
-    msg_inf "Removing subscription port settings from database..."
-    sqlite3 $SUIDB "DELETE FROM settings WHERE key='subPort' OR key='subscriptionPort' OR key='subListenPort';" 2>/dev/null || true
+    # Generate a random internal port for s-ui's subscription service
+    while true; do 
+        SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
+        status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
+        if [ "${status}" != "0" ]; then
+            break
+        fi
+    done
+    
+    # Configure s-ui's subscription service to use internal port
+    msg_inf "Configuring s-ui subscription service on internal port ${SUBPORT}..."
+    msg_inf "(Nginx will handle external port 2096 and proxy to s-ui)"
+    sqlite3 $SUIDB <<SQLEOF
+    DELETE FROM "settings" WHERE ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" );
+    INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${SUBPORT}");
+    INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
+    INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+SQLEOF
     
     # Update any inbounds using port 2096
     if [ "$INBOUNDS_2096" != "0" ]; then

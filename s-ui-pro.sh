@@ -11,11 +11,23 @@ msg_inf '╚═╗───║ ║║───╠═╝╠╦╝║ ║';
 msg_inf '╚═╝   ╚═╝╩   ╩  ╩╚═╚═╝';echo;
 RNDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$(shuf -i 6-12 -n 1)")
 SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";subdomain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
+# Generate random port for web panel
 while true; do 
     PORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
     status="$(nc -z 127.0.0.1 $PORT < /dev/null &>/dev/null; echo $?)"
     if [ "${status}" != "0" ]; then
         break
+    fi
+done
+# Generate random port for subscription service (different from web panel port)
+while true; do 
+    SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
+    # Make sure it's different from PORT and not in use
+    if [ "$SUBPORT" != "$PORT" ]; then
+        status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
+        if [ "${status}" != "0" ]; then
+            break
+        fi
     fi
 done
 ################################Get arguments########################
@@ -201,6 +213,7 @@ sed -i "s|RNDSTR_PLACEHOLDER|$RNDSTR|g" "/etc/nginx/sites-available/$domain"
 sed -i "s|PORT_PLACEHOLDER|$PORT|g" "/etc/nginx/sites-available/$domain"
 
 # Subscription domain configuration (port 2096)
+# Nginx listens on port 2096 and proxies to s-ui's internal subscription port
 cat > "/etc/nginx/sites-available/$subdomain" << EOF
 server {
 	server_name $subdomain;
@@ -224,7 +237,8 @@ server {
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto \$scheme;
-		proxy_pass http://127.0.0.1:$PORT;
+		# Proxy to s-ui's internal subscription port
+		proxy_pass http://127.0.0.1:$SUBPORT;
 	}
 }
 EOF
@@ -277,10 +291,19 @@ if [[ -f $SUIDB ]]; then
 	INSERT INTO "settings" ("key", "value") VALUES ("webPath", "/${RNDSTR}/");
 EOF
 	
-	# Check if there's a subPort or subscriptionPort setting and remove it
-	# since nginx will handle port 2096 instead
-	msg_inf "Removing any subscription port settings (nginx will handle port 2096)..."
-	sqlite3 $SUIDB "DELETE FROM settings WHERE key='subPort' OR key='subscriptionPort' OR key='subListenPort';" 2>/dev/null || true
+	# Configure s-ui's subscription service to use internal port
+	# Nginx will listen on port 2096 and proxy to this internal port
+	msg_inf "Configuring s-ui subscription service on internal port ${SUBPORT}..."
+	msg_inf "(Nginx will handle external port 2096 and proxy to s-ui)"
+	sqlite3 $SUIDB <<EOF
+	DELETE FROM "settings" WHERE ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" ) OR ( "key"="subPath" ) OR ( "key"="subURI" ) OR ( "key"="subDomain" );
+	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${SUBPORT}");
+	INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
+	INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+	INSERT INTO "settings" ("key", "value") VALUES ("subPath", "/sub/");
+	INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${subdomain}");
+	INSERT INTO "settings" ("key", "value") VALUES ("subURI", "");
+EOF
 	
 	# Also check for any inbound configurations that might be using port 2096
 	msg_inf "Checking for inbounds using port 2096..."
