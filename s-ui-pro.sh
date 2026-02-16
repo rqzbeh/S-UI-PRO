@@ -11,6 +11,7 @@ msg_inf '╚═╗───║ ║║───╠═╝╠╦╝║ ║';
 msg_inf '╚═╝   ╚═╝╩   ╩  ╩╚═╚═╝';echo;
 RNDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$(shuf -i 6-12 -n 1)")
 SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";subdomain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
+SUB_PATH="/sub/"  # Subscription service path - used by both nginx and s-ui
 # Generate random port for web panel
 while true; do 
     PORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
@@ -300,7 +301,7 @@ EOF
 	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${SUBPORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
-	INSERT INTO "settings" ("key", "value") VALUES ("subPath", "/sub/");
+	INSERT INTO "settings" ("key", "value") VALUES ("subPath", "${SUB_PATH}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${subdomain}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subURI", "");
 EOF
