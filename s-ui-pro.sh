@@ -134,14 +134,16 @@ server {
 	
 	location /RNDSTR_PLACEHOLDER/ {
 		proxy_redirect off;
-		proxy_set_header Host \$host;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto \$scheme;
 		proxy_pass http://127.0.0.1:PORT_PLACEHOLDER;
 	}
 	
 	# Dynamic port forwarding location with support for multiple transports
 	# Supports: WebSocket, gRPC, HTTP/2, HTTP upgrade, and standard HTTP/HTTPS
+	# Also supports Reality, Trojan, VLESS with custom SNI (preserves original Host header)
 	# For QUIC/Hysteria2/TUIC: These protocols typically use UDP and separate ports
 	location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)\$ {
 		client_max_body_size 0;
@@ -155,9 +157,10 @@ server {
 		proxy_socket_keepalive on;
 		proxy_set_header Upgrade \$http_upgrade;
 		proxy_set_header Connection \$connection_upgrade;
-		proxy_set_header Host \$host;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto \$scheme;
 		proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath;
 	}
 	
@@ -191,9 +194,10 @@ server {
 	
 	location / {
 		proxy_redirect off;
-		proxy_set_header Host \$host;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto \$scheme;
 		proxy_pass http://127.0.0.1:$PORT;
 	}
 }
