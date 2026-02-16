@@ -201,6 +201,8 @@ sed -i "s|RNDSTR_PLACEHOLDER|$RNDSTR|g" "/etc/nginx/sites-available/$domain"
 sed -i "s|PORT_PLACEHOLDER|$PORT|g" "/etc/nginx/sites-available/$domain"
 
 # Subscription domain configuration (port 2096)
+# IMPORTANT: Proxies to SAME internal port as web panel
+# s-ui runs ONE service that handles both web panel and subscription on the same port
 cat > "/etc/nginx/sites-available/$subdomain" << EOF
 server {
 	server_name $subdomain;
@@ -224,6 +226,8 @@ server {
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto \$scheme;
+		# Proxy to SAME internal port as web panel (e.g., 15234)
+		# s-ui serves both /panel-path/ and /sub/ on the same port
 		proxy_pass http://127.0.0.1:$PORT;
 	}
 }
@@ -264,8 +268,10 @@ UPDATE_SUIDB(){
 if [[ -f $SUIDB ]]; then
 	# Configure s-ui database settings
 	msg_inf "Configuring s-ui database..."
-	msg_inf "Web panel: Internal port ${PORT}, path /${RNDSTR}/"
-	msg_inf "Subscription: Domain ${subdomain}:2096, internal port ${PORT}, path /sub/"
+	msg_inf "s-ui will run on internal port ${PORT} for BOTH services:"
+	msg_inf "  - Web panel: https://${domain}:443/${RNDSTR}/ → http://127.0.0.1:${PORT}"
+	msg_inf "  - Subscription: https://${subdomain}:2096/sub/ → http://127.0.0.1:${PORT}"
+	msg_inf "Nginx routes by domain and port, s-ui serves both on same internal port"
 	
 	# Display all current port-related settings for debugging
 	msg_inf "Current port settings in database:"

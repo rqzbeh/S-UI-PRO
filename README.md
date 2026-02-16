@@ -237,6 +237,43 @@ The subscription domain works on port **2096** with SSL:
 - Both the web panel and subscription service run on the same internal s-ui port
 - Nginx handles SSL termination for both main domain (port 443) and subscription domain (port 2096)
 
+#### Port Configuration Explained
+
+**Q: What port does s-ui subscription service listen on?**
+
+**A:** s-ui runs **ONE service** on **ONE internal port** (e.g., 15234) that handles BOTH:
+- Web panel at `http://127.0.0.1:15234/panel-path/`
+- Subscription service at `http://127.0.0.1:15234/sub/`
+
+**Nginx routing:**
+```nginx
+# Main domain → s-ui internal port
+server {
+    listen 443 ssl;
+    server_name nl-main.z3df1lter.uk;
+    location /panel-path/ {
+        proxy_pass http://127.0.0.1:15234;  # Same port!
+    }
+}
+
+# Subscription domain → SAME s-ui internal port
+server {
+    listen 2096 ssl;
+    server_name sub.rqzbe.ir;
+    location / {
+        proxy_pass http://127.0.0.1:15234;  # Same port!
+    }
+}
+```
+
+**Database Configuration:**
+```bash
+webPort=15234          # s-ui web panel port
+subPort=15234          # s-ui subscription port (SAME as webPort!)
+```
+
+**Why same port?** s-ui is a single application that serves multiple endpoints. It doesn't run separate processes for web panel and subscription - they're just different URL paths on the same HTTP server.
+
 #### Different Domain Support
 
 The subscription service can use a **completely different domain** from the main VPN domain:
