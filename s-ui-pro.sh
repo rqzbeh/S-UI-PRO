@@ -10,7 +10,7 @@ msg_inf '╔═╗   ╦ ╦╦   ╔═╗╦═╗╔═╗';
 msg_inf '╚═╗───║ ║║───╠═╝╠╦╝║ ║';
 msg_inf '╚═╝   ╚═╝╩   ╩  ╩╚═╚═╝';echo;
 RNDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$(shuf -i 6-12 -n 1)")
-SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
+SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";subdomain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
 while true; do 
     PORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
     status="$(nc -z 127.0.0.1 $PORT < /dev/null &>/dev/null; echo $?)"
@@ -22,7 +22,8 @@ done
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -install) INSTALL="$2"; shift 2;;
-    -subdomain) domain="$2"; shift 2;;
+    -domain) domain="$2"; shift 2;;
+    -subdomain) subdomain="$2"; shift 2;;
     -version) SUI_VERSION="$2"; shift 2;;
     -uninstall) UNINSTALL="$2"; shift 2;;
     *) shift 1;;
@@ -32,8 +33,8 @@ done
 UNINSTALL_SUI(){
 	printf 'y\n' | s-ui uninstall
 	rm -rf "/usr/local/s-ui/"
-	$Pak -y remove nginx nginx-common nginx-core nginx-full python3-certbot-nginx
-	$Pak -y purge nginx nginx-common nginx-core nginx-full python3-certbot-nginx
+	$Pak -y remove nginx nginx-common nginx-core nginx-full
+	$Pak -y purge nginx nginx-common nginx-core nginx-full
 	$Pak -y autoremove
 	$Pak -y autoclean
 	rm -rf "/var/www/html/" "/etc/nginx/" "/usr/share/nginx/" 
@@ -44,54 +45,87 @@ if [[ ${UNINSTALL} == *"y"* ]]; then
 fi
 ##############################Domain Validations######################
 while true; do
-	echo -en "Enter available subdomain (sub.domain.tld): " && read domain 
+	echo -en "Enter main domain for VPN (e.g., nl-main.z3df1lter.uk): " && read domain 
 	if [[ ! -z "$domain" ]]; then
 		break
 	fi
 done
 
+while true; do
+	echo -en "Enter subscription domain (e.g., sub.rqzbe.ir): " && read subdomain 
+	if [[ ! -z "$subdomain" ]]; then
+		break
+	fi
+done
+
 domain=$(echo "$domain" 2>&1 | tr -d '[:space:]' )
+subdomain=$(echo "$subdomain" 2>&1 | tr -d '[:space:]' )
 SubDomain=$(echo "$domain" 2>&1 | sed 's/^[^ ]* \|\..*//g')
 MainDomain=$(echo "$domain" 2>&1 | sed 's/.*\.\([^.]*\..*\)$/\1/')
 
 if [[ "${SubDomain}.${MainDomain}" != "${domain}" ]] ; then
 	MainDomain=${domain}
 fi
+
+# Extract base domain from main domain (e.g., z3df1lter.uk from nl-main.z3df1lter.uk)
+# This assumes a standard format like subdomain.domain.tld
+BaseDomain=$(echo "$domain" 2>&1 | sed 's/.*\.\([^.]*\.[^.]*\)$/\1/')
+# If extraction failed (e.g., domain has no subdomain), use the full domain
+if [[ -z "$BaseDomain" ]] || [[ "$BaseDomain" == "$domain" ]]; then
+	BaseDomain=$domain
+fi
+
 ###############################Install Packages#############################
 if [[ ${INSTALL} == *"y"* ]]; then
 	$Pak -y update
-	$Pak -y install nginx certbot python3-certbot-nginx sqlite3 
+	$Pak -y install nginx sqlite3 
 	systemctl daemon-reload && systemctl enable --now nginx
 fi
 systemctl stop nginx 
-fuser -k 80/tcp 80/udp 443/tcp 443/udp 2>/dev/null
-##############################Install SSL####################################
-for D in `find /etc/letsencrypt/live -mindepth 1 -type d -exec basename {} \;`; do
-	if [[ $D == "${MainDomain}" ]]; then
-		certbot delete --non-interactive --cert-name ${MainDomain}
-	fi       
-done
- 
-certbot certonly --standalone --non-interactive --force-renewal --agree-tos --register-unsafely-without-email --cert-name "$MainDomain" -d "$domain"
+fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
+##############################SSL Certificate Paths####################################
+# Using existing Cloudflare certificates
+# Certificate path structure:
+#   Main domain: /root/cert-CF/{BaseDomain}/ (base domain extracted from full domain)
+#     Example: For nl-main.z3df1lter.uk -> /root/cert-CF/z3df1lter.uk/
+#   Subscription domain: /root/cert/{full-subdomain}/ (full subscription domain)
+#     Example: For sub.rqzbe.ir -> /root/cert/sub.rqzbe.ir/
+# This matches the user's existing certificate directory structure from Cloudflare
 
-if [[ ! -d "/etc/letsencrypt/live/${MainDomain}/" ]]; then
-	msg_err "$MainDomain SSL certificate could not be generated, Maybe the domain or IP domain is invalid!" && exit 1
+msg_inf "Using existing SSL certificates from:"
+msg_inf "Main domain ($domain): /root/cert-CF/$BaseDomain/"
+msg_inf "Subscription domain ($subdomain): /root/cert/$subdomain/"
+
+# Verify certificate files exist
+if [[ ! -f "/root/cert-CF/$BaseDomain/fullchain.pem" ]] || [[ ! -f "/root/cert-CF/$BaseDomain/privkey.pem" ]]; then
+	msg_err "SSL certificates for main domain not found at /root/cert-CF/$BaseDomain/" && exit 1
 fi
+
+if [[ ! -f "/root/cert/$subdomain/fullchain.pem" ]] || [[ ! -f "/root/cert/$subdomain/privkey.pem" ]]; then
+	msg_err "SSL certificates for subscription domain not found at /root/cert/$subdomain/" && exit 1
+fi
+
 ###########################################################################
-cat > "/etc/nginx/sites-available/$MainDomain" << EOF
+# Main VPN domain configuration (port 443)
+cat > "/etc/nginx/sites-available/$domain" << EOF
 server {
-	server_name ~^((?<subdomain>.*)\.)?(?<domain>[^.]+)\.(?<tld>[^.]+)\$;
+	server_name $domain;
 	listen 80;
+	listen [::]:80;
+	return 301 https://\$server_name\$request_uri;
+}
+
+server {
+	server_name $domain;
 	listen 443 ssl http2;
-	listen [::]:80 ipv6only=on;
-	listen [::]:443 ssl http2 ipv6only=on;
+	listen [::]:443 ssl http2;
 	http2_push_preload on;
 	index index.html index.htm index.php index.nginx-debian.html;
 	root /var/www/html/;
 	ssl_protocols TLSv1.2 TLSv1.3;
-	ssl_certificate /etc/letsencrypt/live/$MainDomain/fullchain.pem;
-	ssl_certificate_key /etc/letsencrypt/live/$MainDomain/privkey.pem;
-	if (\$host !~* ^(.+\.)?$MainDomain\$ ) { return 444; }
+	ssl_certificate /root/cert-CF/$BaseDomain/fullchain.pem;
+	ssl_certificate_key /root/cert-CF/$BaseDomain/privkey.pem;
+	
 	location /$RNDSTR/ {
 		proxy_redirect off;
 		proxy_set_header Host \$host;
@@ -99,6 +133,7 @@ server {
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_pass http://127.0.0.1:$PORT;
 	}
+	
 	location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)\$ {
 		client_max_body_size 0;
 		client_body_timeout 1d;
@@ -123,16 +158,47 @@ server {
 			break;
 		}	
 	}
+	
 	location / { try_files \$uri \$uri/ =404; }
 }
 EOF
+
+# Subscription domain configuration (port 2096)
+cat > "/etc/nginx/sites-available/$subdomain" << EOF
+server {
+	server_name $subdomain;
+	listen 80;
+	listen [::]:80;
+	return 301 https://\$server_name\$request_uri;
+}
+
+server {
+	server_name $subdomain;
+	listen 2096 ssl http2;
+	listen [::]:2096 ssl http2;
+	http2_push_preload on;
+	ssl_protocols TLSv1.2 TLSv1.3;
+	ssl_certificate /root/cert/$subdomain/fullchain.pem;
+	ssl_certificate_key /root/cert/$subdomain/privkey.pem;
+	
+	location / {
+		proxy_redirect off;
+		proxy_set_header Host \$host;
+		proxy_set_header X-Real-IP \$remote_addr;
+		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_pass http://127.0.0.1:$PORT;
+	}
+}
+EOF
+
 ###################################Enable Site###############################
-if [[ -f "/etc/nginx/sites-available/$MainDomain" ]]; then
+if [[ -f "/etc/nginx/sites-available/$domain" ]] && [[ -f "/etc/nginx/sites-available/$subdomain" ]]; then
 	unlink /etc/nginx/sites-enabled/default 2>/dev/null
-	ln -s "/etc/nginx/sites-available/$MainDomain" /etc/nginx/sites-enabled/ 2>/dev/null
-	systemctl start nginx 
+	ln -sf "/etc/nginx/sites-available/$domain" /etc/nginx/sites-enabled/ 2>/dev/null
+	ln -sf "/etc/nginx/sites-available/$subdomain" /etc/nginx/sites-enabled/ 2>/dev/null
+	nginx -t && systemctl start nginx 
 else
-	msg_err "$MainDomain nginx config not exist!" && exit 1
+	msg_err "Nginx config files not created!" && exit 1
 fi
 ###################################Update Db##################################
 UPDATE_SUIDB(){
@@ -163,10 +229,9 @@ else
 	fi
 	s-ui restart
 fi
-######################cronjob for ssl and reload service##################
-crontab -l | grep -v "certbot\|s-ui" | crontab -
+######################cronjob for reload service##################
+crontab -l | grep -v "s-ui" | crontab -
 (crontab -l 2>/dev/null; echo '0 1 * * * s-ui restart > /dev/null 2>&1 && nginx -s reload;') | crontab -
-(crontab -l 2>/dev/null; echo '0 0 1 * * certbot renew --nginx --force-renewal --non-interactive --post-hook "nginx -s reload" > /dev/null 2>&1;') | crontab -
 ##################################Show Details############################
 SUIPORT=$(sqlite3 -list $SUIDB 'SELECT "value" FROM settings WHERE "key"="webPort" LIMIT 1;' 2>&1)
 if systemctl is-active --quiet s-ui && [[ $SUIPORT -eq $PORT ]]; then clear
@@ -174,9 +239,8 @@ if systemctl is-active --quiet s-ui && [[ $SUIPORT -eq $PORT ]]; then clear
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 	nginx -T | grep -i 'ssl_certificate\|ssl_certificate_key'
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	certbot certificates | grep -i 'Path:\|Domains:\|Expiry Date:'
-	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	msg_inf "\nS-UI Admin Panel: https://${domain}/${RNDSTR}\n"
+	msg_inf "\nMain VPN Domain: https://${domain}/${RNDSTR}"
+	msg_inf "Subscription URL: https://${subdomain}:2096/sub/USERNAME?format=json\n"
  	echo -n "Username:  " && sqlite3 $SUIDB 'SELECT "username" FROM users;'
 	echo -n "Password:  " && sqlite3 $SUIDB 'SELECT "password" FROM users;'
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
