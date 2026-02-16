@@ -233,7 +233,9 @@ This script will:
 
 The subscription domain works on port **2096** with SSL:
 - **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
-- This bypasses nginx port routing and goes directly through SSL
+- **How it works**: Nginx listens on port 2096 with SSL and proxies requests to s-ui's internal port
+- Both the web panel and subscription service run on the same internal s-ui port
+- Nginx handles SSL termination for both main domain (port 443) and subscription domain (port 2096)
 
 ---
 

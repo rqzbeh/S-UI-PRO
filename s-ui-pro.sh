@@ -206,7 +206,7 @@ server {
 	server_name $subdomain;
 	listen 80;
 	listen [::]:80;
-	return 301 https://\$server_name\$request_uri;
+	return 301 https://\$server_name:2096\$request_uri;
 }
 
 server {
