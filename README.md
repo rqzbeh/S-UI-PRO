@@ -36,7 +36,7 @@ During installation, you'll be prompted to enter:
 >
 > Main domain handles VPN connections on port 443
 >
-> Subscription domain provides subscription service on port 2096 (for backward compatibility)
+> Subscription domain provides subscription service on port 2096
 
 ---
 
@@ -180,12 +180,7 @@ This means:
 
 **Port 2096 Already in Use Error:**
 
-If you see errors like `listen tcp :2096: bind: address already in use`, this typically means there's a configuration issue where s-ui is trying to bind directly to port 2096 instead of using its internal port.
-
-**Root Cause:**
-- s-ui has a built-in subscription service that defaults to port 2096
-- Our setup configures nginx to own port 2096 and proxy to s-ui's internal port
-- If s-ui's database isn't properly configured, it tries to bind to 2096, causing a conflict
+If you see errors like `listen tcp :2096: bind: address already in use`, this means another process is using port 2096:
 
 **Quick Fix - Use the automated fix script:**
 ```bash
@@ -193,12 +188,10 @@ bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-po
 ```
 
 This script will:
-- Stop both nginx and s-ui services
-- Kill any processes using port 2096
-- Configure s-ui to use a random internal port for subscription service
-- Set up nginx to proxy port 2096 to s-ui's internal port
-- Restart services in the correct order (nginx first, then s-ui)
-- Verify the configuration is working
+- Diagnose what's using port 2096
+- Check s-ui database for conflicting configurations
+- Attempt to automatically fix the issue
+- Provide detailed guidance if manual intervention is needed
 
 **Manual Diagnosis:**
 
@@ -210,119 +203,37 @@ This script will:
    ```
 
 2. **Common causes:**
-   - s-ui database has incorrect subPort setting (should be internal port, not 2096)
-   - Inbound configurations using port 2096 (should use different ports)
-   - Previous installation wasn't fully cleaned
+   - Another instance of s-ui or nginx is running
+   - A previous installation wasn't fully removed
+   - Another application is using port 2096
 
-3. **Manual Fix:**
-   ```bash
-   # Stop services
-   systemctl stop s-ui nginx
-   
-   # Kill processes on port 2096
-   fuser -k 2096/tcp
-   
-   # Check s-ui database subscription port setting
-   sqlite3 /usr/local/s-ui/db/s-ui.db "SELECT key, value FROM settings WHERE key='subPort';"
-   
-   # It should show an internal port (e.g., 12345), not 2096
-   # If it shows 2096 or is missing, run the fix script above
-   
-   # Start nginx first (it should own port 2096)
-   systemctl start nginx
-   
-   # Then start s-ui
-   systemctl start s-ui
-   ```
+3. **Solutions:**
+   - Stop the conflicting service: `systemctl stop <service-name>`
+   - Kill the process: `kill <PID>` (replace `<PID>` with the process ID from step 1)
+   - Uninstall completely and reinstall:
+     ```bash
+     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
+     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
+     ```
 
 4. **Check service status:**
    ```bash
-   systemctl status nginx
    systemctl status s-ui
+   systemctl status nginx
    journalctl -u s-ui -n 50
    ```
 
-5. **Verify correct port binding:**
+5. **Verify ports are free before reinstalling:**
    ```bash
-   # Nginx should be on 2096
-   lsof -i :2096 | grep nginx
-   
-   # s-ui should be on internal port (check database for subPort value)
-   sqlite3 /usr/local/s-ui/db/s-ui.db "SELECT value FROM settings WHERE key='subPort';"
+   # This should return nothing if ports are free
+   lsof -i :80 -i :443 -i :2096
    ```
 
 ### Subscription Service
 
-The subscription service provides VPN configuration links for your clients.
-
-**How It Works:**
+The subscription domain works on port **2096** with SSL:
 - **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
-- **Port 2096**: Required for backward compatibility with existing subscription links
-- **Architecture**: 
-  - Nginx listens on port 2096 with SSL (using your Cloudflare certificates)
-  - Nginx proxies requests to s-ui's internal subscription service (random port 10000-59151)
-  - s-ui subscription service generates configs pointing to your main VPN domain (port 443)
-  
-**Why This Design:**
-- **Backward Compatible**: Existing user links on port 2096 continue to work
-- **No Port Conflicts**: Nginx owns port 2096, s-ui uses an internal port (e.g., 23451)
-- **SSL Handled by Nginx**: Simplifies s-ui configuration, uses your existing certificates
-- **Separate Domain**: Subscription service can use different domain than VPN service
-- **Secure**: All traffic encrypted via nginx SSL termination
-
-**Example URLs:**
-```
-Main Panel:    https://nl-main.z3df1lter.uk/ohiLp5
-Subscription:  https://sub.rqzbe.ir:2096/sub/USERNAME?format=json
-```
-
-**Example Flow:**
-```
-Client requests: https://sub.rqzbe.ir:2096/sub/USERNAME?format=json
-       ↓
-Nginx (port 2096 - SSL termination with Cloudflare certs)
-       ↓
-Proxy to http://127.0.0.1:SUBPORT (e.g., 23451)
-       ↓
-s-ui subscription service (internal port, generates configs)
-       ↓
-Returns: VPN configs pointing to https://nl-main.z3df1lter.uk:443
-```
-
-**Key Configuration:**
-- s-ui web panel: Random internal port (e.g., 15234) - proxied by nginx on main domain
-- s-ui subscription: Random internal port (e.g., 23451) - proxied by nginx on port 2096
-- nginx: Owns external ports 80, 443, and 2096
-- No port conflicts between nginx and s-ui
-
-**Backward Compatibility:**
-
-If you have **existing subscription links** with port 2096, they will continue to work! The configuration ensures:
-
-1. **Existing Links Work**: `https://old-domain.com:2096/sub/USER` → still works
-2. **New Links Work**: `https://new-domain.com:2096/sub/USER` → works the same way
-3. **Different Domains**: You can use a completely different domain for subscription service
-
-**How to Migrate Subscription Domain:**
-
-If you want to change your subscription domain (e.g., from `old-sub.domain.com` to `sub.rqzbe.ir`):
-
-1. **Install with new domain**:
-   ```bash
-   bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
-   # Enter new subscription domain when prompted
-   ```
-
-2. **Update DNS**: Point new domain to your VPS IP
-
-3. **Add SSL certificate**: Place certs at `/root/cert/sub.rqzbe.ir/`
-
-4. **Old links still work**: Users with old domain links can continue using them
-   - Old: `https://old-sub.domain.com:2096/sub/USER`
-   - New: `https://sub.rqzbe.ir:2096/sub/USER`
-   - Both work simultaneously if both domains point to your server
-
-5. **Gradual migration**: Update user links at your own pace
+- This bypasses nginx port routing and goes directly through SSL
 
 ---
 

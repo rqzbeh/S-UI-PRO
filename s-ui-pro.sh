@@ -11,24 +11,11 @@ msg_inf '╚═╗───║ ║║───╠═╝╠╦╝║ ║';
 msg_inf '╚═╝   ╚═╝╩   ╩  ╩╚═╚═╝';echo;
 RNDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$(shuf -i 6-12 -n 1)")
 SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";subdomain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
-SUB_PATH="/sub/"  # Subscription service path - used by both nginx and s-ui
-# Generate random port for web panel
 while true; do 
     PORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
     status="$(nc -z 127.0.0.1 $PORT < /dev/null &>/dev/null; echo $?)"
     if [ "${status}" != "0" ]; then
         break
-    fi
-done
-# Generate random port for subscription service (different from web panel port)
-while true; do 
-    SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
-    # Make sure it's different from PORT and not in use
-    if [ "$SUBPORT" != "$PORT" ]; then
-        status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
-        if [ "${status}" != "0" ]; then
-            break
-        fi
     fi
 done
 ################################Get arguments########################
@@ -99,7 +86,7 @@ sleep 2
 
 # Kill any processes still using the required ports
 msg_inf "Checking for processes using ports 80, 443, and 2096..."
-msg_inf "IMPORTANT: Port 2096 is required for existing subscription links!"
+msg_inf "WARNING: Any processes using these ports will be forcefully terminated!"
 fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
 sleep 2
 
@@ -213,14 +200,13 @@ sed -i "s|CERT_PATH_PLACEHOLDER|/root/cert-CF/$BaseDomain|g" "/etc/nginx/sites-a
 sed -i "s|RNDSTR_PLACEHOLDER|$RNDSTR|g" "/etc/nginx/sites-available/$domain"
 sed -i "s|PORT_PLACEHOLDER|$PORT|g" "/etc/nginx/sites-available/$domain"
 
-# Subscription domain configuration (port 2096 - REQUIRED for existing user links!)
-# Nginx listens on port 2096 and proxies to s-ui's internal subscription port
+# Subscription domain configuration (port 2096)
 cat > "/etc/nginx/sites-available/$subdomain" << EOF
 server {
 	server_name $subdomain;
 	listen 80;
 	listen [::]:80;
-	return 301 https://\$server_name:2096\$request_uri;
+	return 301 https://\$server_name\$request_uri;
 }
 
 server {
@@ -238,8 +224,7 @@ server {
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto \$scheme;
-		# Proxy to s-ui's internal subscription port
-		proxy_pass http://127.0.0.1:$SUBPORT;
+		proxy_pass http://127.0.0.1:$PORT;
 	}
 }
 EOF
@@ -285,25 +270,14 @@ if [[ -f $SUIDB ]]; then
 	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%';" 2>/dev/null || true
 	
 	sqlite3 $SUIDB <<EOF
-	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ); 
+	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ) OR ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" ); 
 	INSERT INTO "settings" ("key", "value") VALUES ("webPort",  "${PORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("webCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webKeyFile", "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webPath", "/${RNDSTR}/");
-EOF
-	
-	# Configure s-ui's subscription service to use internal port
-	# Nginx will listen on port 2096 and proxy to this internal port
-	msg_inf "Configuring s-ui subscription service on internal port ${SUBPORT}..."
-	msg_inf "(Nginx will handle external port 2096 and proxy to s-ui)"
-	sqlite3 $SUIDB <<EOF
-	DELETE FROM "settings" WHERE ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" ) OR ( "key"="subPath" ) OR ( "key"="subURI" ) OR ( "key"="subDomain" );
-	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${SUBPORT}");
+	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${PORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
-	INSERT INTO "settings" ("key", "value") VALUES ("subPath", "${SUB_PATH}");
-	INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${subdomain}");
-	INSERT INTO "settings" ("key", "value") VALUES ("subURI", "");
 EOF
 	
 	# Also check for any inbound configurations that might be using port 2096
@@ -324,9 +298,24 @@ fi
 if systemctl is-active --quiet s-ui; then
 	UPDATE_SUIDB
 	
+	# Before restarting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui restart. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
 	msg_inf "Restarting s-ui service..."
 	s-ui restart
-	# Wait for service to fully start
+	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
 else
 	printf 'n\n' | bash <(wget -qO- "https://raw.githubusercontent.com/alireza0/s-ui/master/install.sh") $SUI_VERSION
@@ -338,9 +327,24 @@ else
     		systemctl enable s-ui.service 
 	fi
 	
+	# Before starting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui start. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
 	msg_inf "Starting s-ui service..."
 	s-ui restart
-	# Wait for service to fully start
+	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
 fi
 ######################Wait for service to be ready##################
@@ -355,8 +359,26 @@ for i in {1..30}; do
 	
 	# Check if s-ui failed due to port conflict
 	if systemctl is-failed --quiet s-ui; then
-		msg_err "s-ui service failed to start."
-		journalctl -u s-ui -n 20 --no-pager
+		msg_err "s-ui service failed to start. Checking for port conflicts..."
+		
+		# Check recent logs for port 2096 error
+		if journalctl -u s-ui -n 20 --no-pager | grep -q "listen tcp.*:2096.*address already in use"; then
+			msg_err "ERROR: s-ui is trying to bind to port 2096, which is already used by nginx!"
+			msg_err "This is a configuration issue with s-ui."
+			msg_err ""
+			msg_err "SOLUTION:"
+			msg_err "1. Stop both services:"
+			msg_err "   systemctl stop s-ui nginx"
+			msg_err "2. Check s-ui database for port 2096 configuration:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM settings WHERE value='2096';\""
+			msg_err "3. Check for inbounds using port 2096:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM inbounds WHERE CAST(port AS INTEGER)=2096;\""
+			msg_err "4. Remove any port 2096 configurations and restart:"
+			msg_err "   systemctl start nginx && systemctl start s-ui"
+			msg_err ""
+			msg_err "For support, visit: https://github.com/alireza0/s-ui"
+			exit 1
+		fi
 		break
 	fi
 	
@@ -366,10 +388,35 @@ done
 # Check if service failed to start
 if [ "$SERVICE_STARTED" = false ]; then
 	msg_err "s-ui service failed to start after 30 seconds."
+	msg_err "Checking for port conflicts..."
+	
+	# Check if nginx is still running
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx has stopped running. This may indicate a port conflict."
+	fi
+	
+	# Check port 2096 specifically since that's a common issue
+	if lsof -Pi :2096 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+		msg_err "Port 2096 is in use by:"
+		lsof -Pi :2096 -sTCP:LISTEN 2>/dev/null || netstat -tlnp | grep ":2096 "
+	fi
+	
 	msg_err "Recent s-ui service logs:"
 	journalctl -u s-ui -n 20 --no-pager
+	
 	msg_err "Please check logs with: journalctl -u s-ui -n 50"
 	exit 1
+fi
+
+# Verify nginx is still running after s-ui started
+if ! systemctl is-active --quiet nginx; then
+	msg_err "Warning: Nginx stopped after s-ui started. Attempting to restart..."
+	systemctl start nginx
+	sleep 2
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx failed to restart. There may be a port conflict with s-ui."
+		msg_err "Check nginx logs with: journalctl -u nginx -n 50"
+	fi
 fi
 ######################cronjob for reload service##################
 crontab -l | grep -v "s-ui" | crontab -
@@ -382,8 +429,7 @@ if systemctl is-active --quiet s-ui && [[ $SUIPORT -eq $PORT ]]; then clear
 	nginx -T | grep -i 'ssl_certificate\|ssl_certificate_key'
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 	msg_inf "\nMain VPN Domain: https://${domain}/${RNDSTR}"
-	msg_inf "Subscription URL: https://${subdomain}:2096/sub/USERNAME?format=json"
-	msg_inf "\nIMPORTANT: All existing user links on port 2096 will continue working!\n"
+	msg_inf "Subscription URL: https://${subdomain}:2096/sub/USERNAME?format=json\n"
  	echo -n "Username:  " && sqlite3 $SUIDB 'SELECT "username" FROM users;'
 	echo -n "Password:  " && sqlite3 $SUIDB 'SELECT "password" FROM users;'
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
