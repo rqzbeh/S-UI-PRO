@@ -239,6 +239,8 @@ fi
 if systemctl is-active --quiet s-ui; then
 	UPDATE_SUIDB
 	s-ui restart
+	# Wait for service to fully start (allowing up to 5 seconds for initialization)
+	sleep 5
 else
 	printf 'n\n' | bash <(wget -qO- "https://raw.githubusercontent.com/alireza0/s-ui/master/install.sh") $SUI_VERSION
 	
@@ -249,6 +251,24 @@ else
     		systemctl enable s-ui.service 
 	fi
 	s-ui restart
+	# Wait for service to fully start (allowing up to 5 seconds for initialization)
+	sleep 5
+fi
+######################Wait for service to be ready##################
+# Wait up to 30 seconds for the service to become active
+SERVICE_STARTED=false
+for i in {1..30}; do
+	if systemctl is-active --quiet s-ui; then
+		msg_inf "s-ui service is now running"
+		SERVICE_STARTED=true
+		break
+	fi
+	sleep 1
+done
+
+# Check if service failed to start
+if [ "$SERVICE_STARTED" = false ]; then
+	msg_err "s-ui service failed to start after 30 seconds. Please check logs with: journalctl -u s-ui -n 50"
 fi
 ######################cronjob for reload service##################
 crontab -l | grep -v "s-ui" | crontab -
