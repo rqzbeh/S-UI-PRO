@@ -178,6 +178,57 @@ This means:
 - Check that the path starts with `/{PORT}/`
 - Verify nginx has the WebSocket upgrade map configured (automatically added during installation)
 
+**Port 2096 Already in Use Error:**
+
+If you see errors like `listen tcp :2096: bind: address already in use`, this means another process is using port 2096:
+
+**Quick Fix - Use the automated fix script:**
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-port-2096.sh)
+```
+
+This script will:
+- Diagnose what's using port 2096
+- Check s-ui database for conflicting configurations
+- Attempt to automatically fix the issue
+- Provide detailed guidance if manual intervention is needed
+
+**Manual Diagnosis:**
+
+1. **Check what's using the port:**
+   ```bash
+   lsof -i :2096
+   # or
+   netstat -tlnp | grep :2096
+   ```
+
+2. **Common causes:**
+   - Another instance of s-ui or nginx is running
+   - A previous installation wasn't fully removed
+   - Another application is using port 2096
+
+3. **Solutions:**
+   - Stop the conflicting service: `systemctl stop <service-name>`
+   - Kill the process: `kill <PID>` (replace `<PID>` with the process ID from step 1)
+   - Uninstall completely and reinstall:
+     ```bash
+     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
+     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
+     ```
+
+4. **Check service status:**
+   ```bash
+   systemctl status s-ui
+   systemctl status nginx
+   journalctl -u s-ui -n 50
+   ```
+
+5. **Verify ports are free before reinstalling:**
+   ```bash
+   # This should return nothing if ports are free
+   lsof -i :80 -i :443 -i :2096
+   ```
+
 ### Subscription Service
 
 The subscription domain works on port **2096** with SSL:
@@ -252,6 +303,12 @@ bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/random
 **Uninstall**:x:
 ```
 bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
+```
+
+**Fix Port Conflicts**:wrench:
+If you experience port 2096 binding errors:
+```
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-port-2096.sh)
 ```
 
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖

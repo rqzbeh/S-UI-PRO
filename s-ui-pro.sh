@@ -81,8 +81,25 @@ if [[ ${INSTALL} == *"y"* ]]; then
 	$Pak -y install nginx sqlite3 
 	systemctl daemon-reload && systemctl enable --now nginx
 fi
-systemctl stop nginx 
+systemctl stop nginx 2>/dev/null
+sleep 2
+
+# Kill any processes still using the required ports
+msg_inf "Checking for processes using ports 80, 443, and 2096..."
+msg_inf "WARNING: Any processes using these ports will be forcefully terminated!"
 fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
+sleep 2
+
+# Double-check that ports are actually free
+for port in 80 443 2096; do
+	if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+		msg_err "Port $port is still in use after cleanup. Checking what's using it..."
+		lsof -Pi :$port -sTCP:LISTEN 2>/dev/null || netstat -tlnp | grep ":$port "
+		msg_err "Please manually stop the process using port $port and try again."
+		exit 1
+	fi
+done
+msg_ok "All required ports (80, 443, 2096) are available."
 ##############################SSL Certificate Paths####################################
 # Using existing Cloudflare certificates
 # Certificate path structure:
@@ -217,13 +234,41 @@ if [[ -f "/etc/nginx/sites-available/$domain" ]] && [[ -f "/etc/nginx/sites-avai
 	unlink /etc/nginx/sites-enabled/default 2>/dev/null
 	ln -sf "/etc/nginx/sites-available/$domain" /etc/nginx/sites-enabled/ 2>/dev/null
 	ln -sf "/etc/nginx/sites-available/$subdomain" /etc/nginx/sites-enabled/ 2>/dev/null
-	nginx -t && systemctl start nginx 
+	
+	# Test nginx configuration
+	if ! nginx -t 2>&1; then
+		msg_err "Nginx configuration test failed!" && exit 1
+	fi
+	
+	# Start nginx and verify it's running
+	systemctl start nginx
+	sleep 2
+	
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx failed to start. Checking for port conflicts..."
+		for port in 80 443 2096; do
+			if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+				msg_err "Port $port is in use:"
+				lsof -Pi :$port -sTCP:LISTEN 2>/dev/null || netstat -tlnp | grep ":$port "
+			fi
+		done
+		msg_err "Please resolve port conflicts and try again."
+		exit 1
+	fi
+	msg_ok "Nginx started successfully on ports 80, 443, and 2096"
 else
 	msg_err "Nginx config files not created!" && exit 1
 fi
 ###################################Update Db##################################
 UPDATE_SUIDB(){
 if [[ -f $SUIDB ]]; then
+	# First, let's check if there are any settings that might be causing port 2096 binding
+	msg_inf "Checking s-ui database for port configurations..."
+	
+	# Display all current port-related settings for debugging
+	msg_inf "Current port settings in database:"
+	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%';" 2>/dev/null || true
+	
 	sqlite3 $SUIDB <<EOF
 	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ); 
 	INSERT INTO "settings" ("key", "value") VALUES ("webPort",  "${PORT}");
@@ -231,6 +276,22 @@ if [[ -f $SUIDB ]]; then
 	INSERT INTO "settings" ("key", "value") VALUES ("webKeyFile", "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webPath", "/${RNDSTR}/");
 EOF
+	
+	# Check if there's a subPort or subscriptionPort setting and remove it
+	# since nginx will handle port 2096 instead
+	msg_inf "Removing any subscription port settings (nginx will handle port 2096)..."
+	sqlite3 $SUIDB "DELETE FROM settings WHERE key='subPort' OR key='subscriptionPort' OR key='subListenPort';" 2>/dev/null || true
+	
+	# Also check for any inbound configurations that might be using port 2096
+	msg_inf "Checking for inbounds using port 2096..."
+	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null || echo "0")
+	if [ "$INBOUNDS_2096" != "0" ]; then
+		msg_err "Warning: Found $INBOUNDS_2096 inbound(s) configured to use port 2096"
+		msg_err "These will conflict with nginx. Please reconfigure them to use different ports."
+		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null || true
+	fi
+	
+	msg_ok "Database updated successfully"
 else
 	msg_err "s-ui.db file not exist! Maybe s-ui isn't installed." && exit 1;
 fi
@@ -238,6 +299,23 @@ fi
 ###################################Install Panel#########################
 if systemctl is-active --quiet s-ui; then
 	UPDATE_SUIDB
+	
+	# Before restarting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui restart. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
+	msg_inf "Restarting s-ui service..."
 	s-ui restart
 	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
@@ -250,6 +328,23 @@ else
   		systemctl enable sing-box.service
     		systemctl enable s-ui.service 
 	fi
+	
+	# Before starting s-ui, ensure nginx is running on port 2096
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx is not running before s-ui start. Starting nginx..."
+		systemctl start nginx
+		sleep 2
+	fi
+	
+	# Verify nginx has port 2096
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
+		systemctl restart nginx
+		sleep 2
+	fi
+	
+	msg_inf "Starting s-ui service..."
 	s-ui restart
 	# Wait for service to fully start (allowing up to 5 seconds for initialization)
 	sleep 5
@@ -263,12 +358,67 @@ for i in {1..30}; do
 		SERVICE_STARTED=true
 		break
 	fi
+	
+	# Check if s-ui failed due to port conflict
+	if systemctl is-failed --quiet s-ui; then
+		msg_err "s-ui service failed to start. Checking for port conflicts..."
+		
+		# Check recent logs for port 2096 error
+		if journalctl -u s-ui -n 20 --no-pager | grep -q "listen tcp.*:2096.*address already in use"; then
+			msg_err "ERROR: s-ui is trying to bind to port 2096, which is already used by nginx!"
+			msg_err "This is a configuration issue with s-ui."
+			msg_err ""
+			msg_err "SOLUTION:"
+			msg_err "1. Stop both services:"
+			msg_err "   systemctl stop s-ui nginx"
+			msg_err "2. Check s-ui database for port 2096 configuration:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM settings WHERE value='2096';\""
+			msg_err "3. Check for inbounds using port 2096:"
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM inbounds WHERE CAST(port AS INTEGER)=2096;\""
+			msg_err "4. Remove any port 2096 configurations and restart:"
+			msg_err "   systemctl start nginx && systemctl start s-ui"
+			msg_err ""
+			msg_err "For support, visit: https://github.com/alireza0/s-ui"
+			exit 1
+		fi
+		break
+	fi
+	
 	sleep 1
 done
 
 # Check if service failed to start
 if [ "$SERVICE_STARTED" = false ]; then
-	msg_err "s-ui service failed to start after 30 seconds. Please check logs with: journalctl -u s-ui -n 50"
+	msg_err "s-ui service failed to start after 30 seconds."
+	msg_err "Checking for port conflicts..."
+	
+	# Check if nginx is still running
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx has stopped running. This may indicate a port conflict."
+	fi
+	
+	# Check port 2096 specifically since that's a common issue
+	if lsof -Pi :2096 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+		msg_err "Port 2096 is in use by:"
+		lsof -Pi :2096 -sTCP:LISTEN 2>/dev/null || netstat -tlnp | grep ":2096 "
+	fi
+	
+	msg_err "Recent s-ui service logs:"
+	journalctl -u s-ui -n 20 --no-pager
+	
+	msg_err "Please check logs with: journalctl -u s-ui -n 50"
+	exit 1
+fi
+
+# Verify nginx is still running after s-ui started
+if ! systemctl is-active --quiet nginx; then
+	msg_err "Warning: Nginx stopped after s-ui started. Attempting to restart..."
+	systemctl start nginx
+	sleep 2
+	if ! systemctl is-active --quiet nginx; then
+		msg_err "Nginx failed to restart. There may be a port conflict with s-ui."
+		msg_err "Check nginx logs with: journalctl -u nginx -n 50"
+	fi
 fi
 ######################cronjob for reload service##################
 crontab -l | grep -v "s-ui" | crontab -
