@@ -1,34 +1,41 @@
 ## s-ui-pro (s-ui + nginx) :octocat:	:open_file_folder:	
 - Auto Installation (lightweight)
 - Compatible with Cloudflare
-- Auto SSL renewal (cronjob)
-- Auto-reload nginx and s-ui
-- Multi-domain and sub-domain support
-- Handle WebSocket and GRPC via nginx.
+- Multi-domain support (main VPN domain and subscription domain)
+- Handle WebSocket and GRPC via nginx
+- Support for existing SSL certificates (no automatic generation)
 - Multi-user and config via port 443
 - Access to s-ui panel via nginx
+- Subscription service on port 2096
 - Compatible with Debian 10+ and Ubuntu 20+
 - More security and low detection with nginx
 - Random 150+ fake template!
   
-➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
-
 **Install Panel**:dvd::package:
+
+**Prerequisites**: 
+- Have your SSL certificates ready from Cloudflare or other provider
+- Main domain certificates should be at: `/root/cert-CF/{base-domain}/`
+- Subscription domain certificates should be at: `/root/cert/{subdomain}/`
+
+Example certificate paths:
+- Main domain (z3df1lter.uk): `/root/cert-CF/z3df1lter.uk/fullchain.pem` and `privkey.pem`
+- Sub domain (sub.rqzbe.ir): `/root/cert/sub.rqzbe.ir/fullchain.pem` and `privkey.pem`
 
 ```
 bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/s-ui-pro.sh) -install yes
 ```
 
-> For the additional subdomain, New A,AAAA[VPSIP] Recorde , no any config in vps!!!
+During installation, you'll be prompted to enter:
+1. Main domain for VPN (e.g., nl-main.z3df1lter.uk) - will use port 443
+2. Subscription domain (e.g., sub.rqzbe.ir) - will use port 2096
+
+> The script will use your existing SSL certificates from the paths mentioned above
 >
-> SSL works for (yourdomain.com, *.yourdomain.com)
+> Main domain handles VPN connections on port 443
 >
-> No need to on/off CDN, during installation
->
-**Add more domains**:heavy_plus_sign:	
-```
-bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/s-ui-pro.sh) -subdomain sub.newdomain.com
-```
+> Subscription domain provides subscription service on port 2096
+➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 
 **Random fake html site**:earth_asia:	
 ```
