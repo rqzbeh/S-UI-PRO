@@ -262,15 +262,17 @@ fi
 ###################################Update Db##################################
 UPDATE_SUIDB(){
 if [[ -f $SUIDB ]]; then
-	# First, let's check if there are any settings that might be causing port 2096 binding
-	msg_inf "Checking s-ui database for port configurations..."
+	# Configure s-ui database settings
+	msg_inf "Configuring s-ui database..."
+	msg_inf "Web panel: Internal port ${PORT}, path /${RNDSTR}/"
+	msg_inf "Subscription: Domain ${subdomain}:2096, internal port ${PORT}, path /sub/"
 	
 	# Display all current port-related settings for debugging
 	msg_inf "Current port settings in database:"
 	sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%';" 2>/dev/null || true
 	
 	sqlite3 $SUIDB <<EOF
-	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ) OR ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" ); 
+	DELETE FROM "settings" WHERE ( "key"="webPort" ) OR ( "key"="webCertFile" ) OR ( "key"="webKeyFile" ) OR ( "key"="webPath" ) OR ( "key"="subPort" ) OR ( "key"="subCertFile" ) OR ( "key"="subKeyFile" ) OR ( "key"="subDomain" ) OR ( "key"="subURI" ) OR ( "key"="subPath" ); 
 	INSERT INTO "settings" ("key", "value") VALUES ("webPort",  "${PORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("webCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webKeyFile", "");
@@ -278,6 +280,9 @@ if [[ -f $SUIDB ]]; then
 	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${PORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+	INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${subdomain}");
+	INSERT INTO "settings" ("key", "value") VALUES ("subURI", "https://${subdomain}:2096");
+	INSERT INTO "settings" ("key", "value") VALUES ("subPath", "/sub/");
 EOF
 	
 	# Also check for any inbound configurations that might be using port 2096

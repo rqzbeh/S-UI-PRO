@@ -95,15 +95,41 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
         exit 1
     fi
     
+    # Try to detect subscription domain from nginx config
+    SUBDOMAIN=$(grep -r "listen 2096" /etc/nginx/sites-enabled/ 2>/dev/null | grep "server_name" -A 1 | grep -oP 'server_name \K[^;]+' | head -1 | tr -d ' ')
+    
+    if [ -z "$SUBDOMAIN" ]; then
+        msg_inf "Could not detect subscription domain from nginx config"
+        msg_inf "Subscription URLs will use server hostname"
+        SUBDOMAIN=""
+        SUBURI=""
+    else
+        msg_inf "Detected subscription domain: ${SUBDOMAIN}"
+        SUBURI="https://${SUBDOMAIN}:2096"
+    fi
+    
     # Configure subscription service to use same port as web panel
     msg_inf "Configuring s-ui subscription service to use same port as web panel (${WEBPORT})..."
     msg_inf "(Nginx on port 2096 will proxy to s-ui on port ${WEBPORT})"
-    sqlite3 $SUIDB <<SQLEOF
-    DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile');
-    INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${WEBPORT}");
-    INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
-    INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+    
+    if [ -n "$SUBDOMAIN" ]; then
+        sqlite3 $SUIDB <<SQLEOF
+        DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile', 'subDomain', 'subURI', 'subPath');
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${WEBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${SUBDOMAIN}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subURI", "${SUBURI}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subPath", "/sub/");
 SQLEOF
+    else
+        sqlite3 $SUIDB <<SQLEOF
+        DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile');
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${WEBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
+        INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
+SQLEOF
+    fi
     
     # Update any inbounds using port 2096
     if [ "$INBOUNDS_2096" != "0" ]; then

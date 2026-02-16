@@ -237,6 +237,49 @@ The subscription domain works on port **2096** with SSL:
 - Both the web panel and subscription service run on the same internal s-ui port
 - Nginx handles SSL termination for both main domain (port 443) and subscription domain (port 2096)
 
+#### Different Domain Support
+
+The subscription service can use a **completely different domain** from the main VPN domain:
+- **Main domain**: `nl-main.z3df1lter.uk` (VPN connections on port 443)
+- **Subscription domain**: `sub.rqzbe.ir` (subscription service on port 2096)
+
+**Database Configuration:**
+```bash
+subDomain=sub.rqzbe.ir          # Domain for subscription URLs
+subURI=https://sub.rqzbe.ir:2096  # Full base URL
+subPath=/sub/                    # Subscription endpoint path
+subPort=<internal-port>          # Same as web panel port
+```
+
+s-ui uses these settings to generate subscription URLs with the correct domain, regardless of the server's hostname.
+
+#### CDN and Proxy Support
+
+The subscription domain can be behind a CDN with proxy enabled:
+- **DNS Setup**: Point subscription domain to CDN or directly to server IP
+- **CDN Proxy**: If using CDN proxy, the subscription domain may resolve to a different IP
+- **Works Transparently**: Nginx handles requests locally regardless of how traffic arrives
+- **SSL**: Nginx terminates SSL with your certificates, then proxies to s-ui
+
+**Example Setup:**
+```
+User → https://sub.rqzbe.ir:2096/sub/USER (CDN IP: 104.x.x.x)
+       ↓
+    CDN (proxied, SSL passthrough or re-encryption)
+       ↓
+    Your Server (Real IP: 45.x.x.x)
+       ↓
+    Nginx (port 2096, terminates SSL)
+       ↓
+    s-ui (internal port, generates URLs with sub.rqzbe.ir)
+```
+
+This allows you to:
+- Hide your real server IP behind CDN
+- Use different domains for different services
+- Keep existing user subscription links working
+- Benefit from CDN caching and DDoS protection
+
 ---
 
 ### Reverse Proxy Options for DPI Bypass :shield:
