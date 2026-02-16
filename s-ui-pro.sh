@@ -284,11 +284,11 @@ EOF
 	
 	# Also check for any inbound configurations that might be using port 2096
 	msg_inf "Checking for inbounds using port 2096..."
-	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE port=2096;" 2>/dev/null || echo "0")
+	INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null || echo "0")
 	if [ "$INBOUNDS_2096" != "0" ]; then
 		msg_err "Warning: Found $INBOUNDS_2096 inbound(s) configured to use port 2096"
 		msg_err "These will conflict with nginx. Please reconfigure them to use different ports."
-		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE port=2096;" 2>/dev/null || true
+		sqlite3 $SUIDB "SELECT id, remark, port FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null || true
 	fi
 	
 	msg_ok "Database updated successfully"
@@ -308,7 +308,7 @@ if systemctl is-active --quiet s-ui; then
 	fi
 	
 	# Verify nginx has port 2096
-	if ! lsof -Pi :2096 -sTCP:LISTEN | grep -q nginx 2>/dev/null; then
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
 		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
 		systemctl restart nginx
 		sleep 2
@@ -336,7 +336,7 @@ else
 	fi
 	
 	# Verify nginx has port 2096
-	if ! lsof -Pi :2096 -sTCP:LISTEN | grep -q nginx 2>/dev/null; then
+	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
 		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
 		systemctl restart nginx
 		sleep 2
@@ -370,9 +370,9 @@ for i in {1..30}; do
 			msg_err "1. Stop both services:"
 			msg_err "   systemctl stop s-ui nginx"
 			msg_err "2. Check s-ui database for port 2096 configuration:"
-			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM settings WHERE value LIKE '%2096%';\""
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM settings WHERE value='2096';\""
 			msg_err "3. Check for inbounds using port 2096:"
-			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM inbounds WHERE port=2096;\""
+			msg_err "   sqlite3 /usr/local/s-ui/db/s-ui.db \"SELECT * FROM inbounds WHERE CAST(port AS INTEGER)=2096;\""
 			msg_err "4. Remove any port 2096 configurations and restart:"
 			msg_err "   systemctl start nginx && systemctl start s-ui"
 			msg_err ""

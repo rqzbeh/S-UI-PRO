@@ -51,10 +51,10 @@ sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR value
 echo
 
 echo "Inbounds using port 2096:"
-INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE port=2096;" 2>/dev/null || echo "0")
+INBOUNDS_2096=$(sqlite3 $SUIDB "SELECT COUNT(*) FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null || echo "0")
 if [ "$INBOUNDS_2096" != "0" ]; then
     msg_err "Found $INBOUNDS_2096 inbound(s) using port 2096:"
-    sqlite3 $SUIDB "SELECT id, remark, port, listen FROM inbounds WHERE port=2096;" 2>/dev/null
+    sqlite3 $SUIDB "SELECT id, remark, port, listen FROM inbounds WHERE CAST(port AS INTEGER)=2096;" 2>/dev/null
     echo
     msg_err "These inbounds will conflict with nginx on port 2096!"
     msg_inf "You should change them to use different ports (e.g., 10001, 10002, etc.)"
@@ -105,7 +105,7 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
     if systemctl is-active --quiet nginx; then
         msg_ok "Nginx started successfully"
         
-        if lsof -Pi :2096 -sTCP:LISTEN | grep -q nginx; then
+        if lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
             msg_ok "Nginx is now listening on port 2096"
         else
             msg_err "Nginx is running but not listening on port 2096"
