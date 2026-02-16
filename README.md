@@ -233,46 +233,48 @@ This script will:
 
 The subscription domain works on port **2096** with SSL:
 - **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
-- **How it works**: Nginx listens on port 2096 with SSL and proxies requests to s-ui's internal port
-- Both the web panel and subscription service run on the same internal s-ui port
+- **How it works**: Nginx listens on port 2096 with SSL and proxies requests to s-ui's subscription service
+- s-ui runs TWO separate listeners - one for web panel, one for subscription service
 - Nginx handles SSL termination for both main domain (port 443) and subscription domain (port 2096)
 
 #### Port Configuration Explained
 
 **Q: What port does s-ui subscription service listen on?**
 
-**A:** s-ui runs **ONE service** on **ONE internal port** (e.g., 15234) that handles BOTH:
-- Web panel at `http://127.0.0.1:15234/panel-path/`
-- Subscription service at `http://127.0.0.1:15234/sub/`
+**A:** s-ui runs **TWO separate HTTP listeners** on **TWO different internal ports**:
+- Web panel listener: `http://127.0.0.1:PORT1` (e.g., 15234)
+- Subscription listener: `http://127.0.0.1:PORT2` (e.g., 23451)
+
+Both run in the same s-ui process, but they listen on different ports.
 
 **Nginx routing:**
 ```nginx
-# Main domain → s-ui internal port
+# Main domain → s-ui web panel port
 server {
     listen 443 ssl;
     server_name nl-main.z3df1lter.uk;
     location /panel-path/ {
-        proxy_pass http://127.0.0.1:15234;  # Same port!
+        proxy_pass http://127.0.0.1:15234;  # Web panel port
     }
 }
 
-# Subscription domain → SAME s-ui internal port
+# Subscription domain → s-ui subscription port (DIFFERENT!)
 server {
     listen 2096 ssl;
     server_name sub.rqzbe.ir;
     location / {
-        proxy_pass http://127.0.0.1:15234;  # Same port!
+        proxy_pass http://127.0.0.1:23451;  # Subscription port
     }
 }
 ```
 
 **Database Configuration:**
 ```bash
-webPort=15234          # s-ui web panel port
-subPort=15234          # s-ui subscription port (SAME as webPort!)
+webPort=15234          # s-ui web panel listener port
+subPort=23451          # s-ui subscription listener port (DIFFERENT!)
 ```
 
-**Why same port?** s-ui is a single application that serves multiple endpoints. It doesn't run separate processes for web panel and subscription - they're just different URL paths on the same HTTP server.
+**Why different ports?** s-ui has two separate HTTP server listeners - one for the admin panel and one for the subscription service. They must be on different ports.
 
 #### Different Domain Support
 

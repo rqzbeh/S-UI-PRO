@@ -95,6 +95,18 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
         exit 1
     fi
     
+    # Generate a DIFFERENT random port for subscription service
+    msg_inf "Generating random port for subscription service..."
+    while true; do 
+        SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
+        if [ "$SUBPORT" != "$WEBPORT" ]; then
+            status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
+            if [ "${status}" != "0" ]; then
+                break
+            fi
+        fi
+    done
+    
     # Try to detect subscription domain from nginx config
     SUBDOMAIN=$(grep -r "listen 2096" /etc/nginx/sites-enabled/ 2>/dev/null | grep "server_name" -A 1 | grep -oP 'server_name \K[^;]+' | head -1 | tr -d ' ')
     
@@ -108,14 +120,15 @@ if [[ $AUTOFIX == "y" ]] || [[ $AUTOFIX == "Y" ]]; then
         SUBURI="https://${SUBDOMAIN}:2096"
     fi
     
-    # Configure subscription service to use same port as web panel
-    msg_inf "Configuring s-ui subscription service to use same port as web panel (${WEBPORT})..."
-    msg_inf "(Nginx on port 2096 will proxy to s-ui on port ${WEBPORT})"
+    # Configure subscription service with DIFFERENT port than web panel
+    msg_inf "Configuring s-ui subscription service..."
+    msg_inf "Web panel port: ${WEBPORT} (nginx forwards 443 → ${WEBPORT})"
+    msg_inf "Subscription port: ${SUBPORT} (nginx forwards 2096 → ${SUBPORT})"
     
     if [ -n "$SUBDOMAIN" ]; then
         sqlite3 $SUIDB <<SQLEOF
         DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile', 'subDomain', 'subURI', 'subPath');
-        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${WEBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${SUBPORT}");
         INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
         INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
         INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${SUBDOMAIN}");
@@ -125,7 +138,7 @@ SQLEOF
     else
         sqlite3 $SUIDB <<SQLEOF
         DELETE FROM "settings" WHERE "key" IN ('subPort', 'subCertFile', 'subKeyFile');
-        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${WEBPORT}");
+        INSERT INTO "settings" ("key", "value") VALUES ("subPort", "${SUBPORT}");
         INSERT INTO "settings" ("key", "value") VALUES ("subCertFile", "");
         INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
 SQLEOF

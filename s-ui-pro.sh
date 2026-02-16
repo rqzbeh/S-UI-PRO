@@ -11,11 +11,22 @@ msg_inf '╚═╗───║ ║║───╠═╝╠╦╝║ ║';
 msg_inf '╚═╝   ╚═╝╩   ╩  ╩╚═╚═╝';echo;
 RNDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$(shuf -i 6-12 -n 1)")
 SUIDB="/usr/local/s-ui/db/s-ui.db";domain="";subdomain="";UNINSTALL="x";INSTALL="n";SUI_VERSION=""
+# Generate random port for web panel
 while true; do 
     PORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
     status="$(nc -z 127.0.0.1 $PORT < /dev/null &>/dev/null; echo $?)"
     if [ "${status}" != "0" ]; then
         break
+    fi
+done
+# Generate DIFFERENT random port for subscription service
+while true; do 
+    SUBPORT=$(( ((RANDOM<<15)|RANDOM) % 49152 + 10000 ))
+    if [ "$SUBPORT" != "$PORT" ]; then
+        status="$(nc -z 127.0.0.1 $SUBPORT < /dev/null &>/dev/null; echo $?)"
+        if [ "${status}" != "0" ]; then
+            break
+        fi
     fi
 done
 ################################Get arguments########################
@@ -201,8 +212,8 @@ sed -i "s|RNDSTR_PLACEHOLDER|$RNDSTR|g" "/etc/nginx/sites-available/$domain"
 sed -i "s|PORT_PLACEHOLDER|$PORT|g" "/etc/nginx/sites-available/$domain"
 
 # Subscription domain configuration (port 2096)
-# IMPORTANT: Proxies to SAME internal port as web panel
-# s-ui runs ONE service that handles both web panel and subscription on the same port
+# IMPORTANT: Proxies to DIFFERENT internal port than web panel
+# s-ui runs TWO separate listeners - one for web panel, one for subscription
 cat > "/etc/nginx/sites-available/$subdomain" << EOF
 server {
 	server_name $subdomain;
@@ -226,9 +237,9 @@ server {
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto \$scheme;
-		# Proxy to SAME internal port as web panel (e.g., 15234)
-		# s-ui serves both /panel-path/ and /sub/ on the same port
-		proxy_pass http://127.0.0.1:$PORT;
+		# Proxy to subscription service internal port (DIFFERENT from web panel)
+		# Web panel: PORT, Subscription: SUBPORT
+		proxy_pass http://127.0.0.1:$SUBPORT;
 	}
 }
 EOF
@@ -268,10 +279,10 @@ UPDATE_SUIDB(){
 if [[ -f $SUIDB ]]; then
 	# Configure s-ui database settings
 	msg_inf "Configuring s-ui database..."
-	msg_inf "s-ui will run on internal port ${PORT} for BOTH services:"
-	msg_inf "  - Web panel: https://${domain}:443/${RNDSTR}/ → http://127.0.0.1:${PORT}"
-	msg_inf "  - Subscription: https://${subdomain}:2096/sub/ → http://127.0.0.1:${PORT}"
-	msg_inf "Nginx routes by domain and port, s-ui serves both on same internal port"
+	msg_inf "s-ui will run TWO separate listeners on different internal ports:"
+	msg_inf "  - Web panel: Internal port ${PORT} (nginx forwards 443 → ${PORT})"
+	msg_inf "  - Subscription: Internal port ${SUBPORT} (nginx forwards 2096 → ${SUBPORT})"
+	msg_inf "Both services run in same s-ui process, but listen on different ports"
 	
 	# Display all current port-related settings for debugging
 	msg_inf "Current port settings in database:"
@@ -283,7 +294,7 @@ if [[ -f $SUIDB ]]; then
 	INSERT INTO "settings" ("key", "value") VALUES ("webCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webKeyFile", "");
 	INSERT INTO "settings" ("key", "value") VALUES ("webPath", "/${RNDSTR}/");
-	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${PORT}");
+	INSERT INTO "settings" ("key", "value") VALUES ("subPort",  "${SUBPORT}");
 	INSERT INTO "settings" ("key", "value") VALUES ("subCertFile",  "");
 	INSERT INTO "settings" ("key", "value") VALUES ("subKeyFile", "");
 	INSERT INTO "settings" ("key", "value") VALUES ("subDomain", "${subdomain}");
