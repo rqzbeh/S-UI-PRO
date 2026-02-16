@@ -1,5 +1,5 @@
 #!/bin/bash
-### https://github.com/GFW4Fun
+### https://github.com/rqzbeh
 Green="\033[32m"
 Red="\033[31m"
 Yellow="\033[33m"

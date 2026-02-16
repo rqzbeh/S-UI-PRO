@@ -25,7 +25,7 @@ Example certificate paths:
   - Note: Certificate path uses full subscription domain
 
 ```
-bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/s-ui-pro.sh) -install yes
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
 ```
 
 During installation, you'll be prompted to enter:
@@ -37,24 +37,67 @@ During installation, you'll be prompted to enter:
 > Main domain handles VPN connections on port 443
 >
 > Subscription domain provides subscription service on port 2096
+
+### Reverse Proxy Options for DPI Bypass :shield:
+
+This project uses **Nginx** as the reverse proxy, which is well-suited for bypassing Deep Packet Inspection (DPI) in Iran and similar censorship environments. However, you might wonder about alternatives:
+
+**Why Nginx (Current Choice)?**
+- Lightweight and high-performance
+- Excellent WebSocket and gRPC support (critical for modern VPN protocols)
+- Wide adoption and extensive documentation
+- Lower resource usage compared to alternatives
+- Strong track record for DPI bypass when properly configured
+
+**Caddy vs HAProxy Comparison:**
+
+**Caddy:**
+- ✅ Automatic HTTPS with Let's Encrypt (not needed here since we use Cloudflare certs)
+- ✅ Simpler configuration syntax
+- ✅ Good WebSocket support
+- ❌ Higher memory usage than Nginx
+- ❌ Less mature for high-traffic scenarios
+- ⚠️ For DPI bypass: Similar effectiveness to Nginx
+
+**HAProxy:**
+- ✅ Excellent for TCP load balancing
+- ✅ Very efficient for high-traffic scenarios
+- ✅ Advanced traffic manipulation features
+- ❌ More complex HTTP/2 and gRPC configuration
+- ❌ Requires additional setup for WebSocket
+- ⚠️ For DPI bypass: Good, but not optimized for HTTP-based protocols
+
+**Recommendation for Iran:**
+Stick with **Nginx** for this setup because:
+1. It handles WebSocket and gRPC natively (both used by modern VPN protocols)
+2. Lower resource footprint = better performance on VPS
+3. HTTP/2 support is excellent for mimicking normal HTTPS traffic
+4. The current configuration is already optimized for DPI bypass
+
+The key to bypassing DPI is not the reverse proxy choice, but rather:
+- Using proper SNI (Server Name Indication) with Cloudflare domains
+- Proper WebSocket/gRPC configuration (already included)
+- Random path obfuscation (implemented via `$RNDSTR`)
+- TLS 1.3 support (enabled in config)
+
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 
 **Random fake html site**:earth_asia:	
 ```
-bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/randomfakehtml.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/randomfakehtml.sh)
 ```
 
 **Uninstall**:x:
 ```
-bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
+bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
 ```
 
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 ### Server Configuration :wrench:🐧⚙️
-![](https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/media/Server_Config_.png)
+![](https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/media/Server_Config_.png)
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 ### Client Configuration :white_check_mark:	:computer:🔌
-![](https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/media/ClientUser_Config.png)
+![](https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/media/ClientUser_Config.png)
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 ### Cloudflare Find Good IP (VPN off❗ during scanning)
 Cloudflare IP Ranges: https://www.cloudflare.com/ips/
@@ -62,5 +105,5 @@ Cloudflare IP Ranges: https://www.cloudflare.com/ips/
 Cloudflare IP Scanner: [vfarid](https://vfarid.github.io/cf-ip-scanner/) | [goldsrc](https://cloudflare-scanner.vercel.app) | [ircfspace](https://ircfspace.github.io/scanner/)
 
 ##
-[![Star History Chart](https://api.star-history.com/svg?repos=GFW4Fun/S-UI-PRO&type=Date)](https://github.com/GFW4Fun/S-UI-PRO)
+[![Star History Chart](https://api.star-history.com/svg?repos=rqzbeh/S-UI-PRO&type=Date)](https://github.com/rqzbeh/S-UI-PRO)
 
