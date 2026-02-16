@@ -180,7 +180,12 @@ This means:
 
 **Port 2096 Already in Use Error:**
 
-If you see errors like `listen tcp :2096: bind: address already in use`, this means another process is using port 2096:
+If you see errors like `listen tcp :2096: bind: address already in use`, this typically means there's a configuration issue where s-ui is trying to bind directly to port 2096 instead of using its internal port.
+
+**Root Cause:**
+- s-ui has a built-in subscription service that defaults to port 2096
+- Our setup configures nginx to own port 2096 and proxy to s-ui's internal port
+- If s-ui's database isn't properly configured, it tries to bind to 2096, causing a conflict
 
 **Quick Fix - Use the automated fix script:**
 ```bash
@@ -188,10 +193,12 @@ bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/fix-po
 ```
 
 This script will:
-- Diagnose what's using port 2096
-- Check s-ui database for conflicting configurations
-- Attempt to automatically fix the issue
-- Provide detailed guidance if manual intervention is needed
+- Stop both nginx and s-ui services
+- Kill any processes using port 2096
+- Configure s-ui to use a random internal port for subscription service
+- Set up nginx to proxy port 2096 to s-ui's internal port
+- Restart services in the correct order (nginx first, then s-ui)
+- Verify the configuration is working
 
 **Manual Diagnosis:**
 
@@ -203,37 +210,74 @@ This script will:
    ```
 
 2. **Common causes:**
-   - Another instance of s-ui or nginx is running
-   - A previous installation wasn't fully removed
-   - Another application is using port 2096
+   - s-ui database has incorrect subPort setting (should be internal port, not 2096)
+   - Inbound configurations using port 2096 (should use different ports)
+   - Previous installation wasn't fully cleaned
 
-3. **Solutions:**
-   - Stop the conflicting service: `systemctl stop <service-name>`
-   - Kill the process: `kill <PID>` (replace `<PID>` with the process ID from step 1)
-   - Uninstall completely and reinstall:
-     ```bash
-     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -uninstall yes
-     bash <(wget -qO- https://raw.githubusercontent.com/rqzbeh/S-UI-PRO/master/s-ui-pro.sh) -install yes
-     ```
+3. **Manual Fix:**
+   ```bash
+   # Stop services
+   systemctl stop s-ui nginx
+   
+   # Kill processes on port 2096
+   fuser -k 2096/tcp
+   
+   # Check s-ui database subscription port setting
+   sqlite3 /usr/local/s-ui/db/s-ui.db "SELECT key, value FROM settings WHERE key='subPort';"
+   
+   # It should show an internal port (e.g., 12345), not 2096
+   # If it shows 2096 or is missing, run the fix script above
+   
+   # Start nginx first (it should own port 2096)
+   systemctl start nginx
+   
+   # Then start s-ui
+   systemctl start s-ui
+   ```
 
 4. **Check service status:**
    ```bash
-   systemctl status s-ui
    systemctl status nginx
+   systemctl status s-ui
    journalctl -u s-ui -n 50
    ```
 
-5. **Verify ports are free before reinstalling:**
+5. **Verify correct port binding:**
    ```bash
-   # This should return nothing if ports are free
-   lsof -i :80 -i :443 -i :2096
+   # Nginx should be on 2096
+   lsof -i :2096 | grep nginx
+   
+   # s-ui should be on internal port (check database for subPort value)
+   sqlite3 /usr/local/s-ui/db/s-ui.db "SELECT value FROM settings WHERE key='subPort';"
    ```
 
 ### Subscription Service
 
-The subscription domain works on port **2096** with SSL:
-- **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
-- This bypasses nginx port routing and goes directly through SSL
+The subscription service provides VPN configuration links for your clients.
+
+**How It Works:**
+- **External Access**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
+- **Architecture**: 
+  - Nginx listens on port 2096 with SSL (using your Cloudflare certificates)
+  - Nginx proxies requests to s-ui's internal subscription service (random port 10000-59151)
+  - s-ui generates subscription configs pointing to your main VPN domain (port 443)
+  
+**Why This Design:**
+- **No Port Conflicts**: Nginx owns port 2096, s-ui uses an internal port
+- **SSL Handled by Nginx**: Simplifies s-ui configuration, uses your existing certificates
+- **Separate Domain**: Subscription service can use different domain than VPN service
+- **Secure**: All traffic encrypted via nginx SSL termination
+
+**Example Flow:**
+```
+Client requests: https://sub.rqzbe.ir:2096/sub/USERNAME?format=json
+       ↓
+Nginx (port 2096 - SSL termination with Cloudflare certs)
+       ↓
+s-ui subscription service (internal port, generates configs)
+       ↓
+Returns: VPN configs pointing to https://nl-main.z3df1lter.uk:443
+```
 
 ---
 
