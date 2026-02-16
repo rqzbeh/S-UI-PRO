@@ -108,7 +108,16 @@ fi
 ###########################################################################
 # Add WebSocket upgrade map to nginx.conf if not already present
 if ! grep -q "map \$http_upgrade \$connection_upgrade" /etc/nginx/nginx.conf; then
-	sed -i '/http {/a\    # WebSocket and HTTP upgrade support\n    map $http_upgrade $connection_upgrade {\n        default upgrade;\n        '"''"' close;\n    }\n' /etc/nginx/nginx.conf
+	# Add WebSocket upgrade map after the http { line
+	cat > /tmp/websocket_map.conf << 'WSMAP'
+    # WebSocket and HTTP upgrade support
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+WSMAP
+	sed -i '/http {/r /tmp/websocket_map.conf' /etc/nginx/nginx.conf
+	rm -f /tmp/websocket_map.conf
 fi
 
 ###########################################################################
