@@ -68,9 +68,12 @@ if [[ "${SubDomain}.${MainDomain}" != "${domain}" ]] ; then
 fi
 
 # Extract base domain from main domain (e.g., z3df1lter.uk from nl-main.z3df1lter.uk)
+# This assumes a standard format like subdomain.domain.tld
 BaseDomain=$(echo "$domain" 2>&1 | sed 's/.*\.\([^.]*\.[^.]*\)$/\1/')
-# Extract base domain from subscription domain (e.g., rqzbe.ir from sub.rqzbe.ir)
-SubBaseDomain=$(echo "$subdomain" 2>&1 | sed 's/.*\.\([^.]*\.[^.]*\)$/\1/')
+# If extraction failed (e.g., domain has no subdomain), use the full domain
+if [[ -z "$BaseDomain" ]] || [[ "$BaseDomain" == "$domain" ]]; then
+	BaseDomain=$domain
+fi
 
 ###############################Install Packages#############################
 if [[ ${INSTALL} == *"y"* ]]; then
@@ -82,8 +85,12 @@ systemctl stop nginx
 fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
 ##############################SSL Certificate Paths####################################
 # Using existing Cloudflare certificates
-# Main domain cert path: /root/cert-CF/{BaseDomain}/
-# Subscription domain cert path: /root/cert/{subdomain}/
+# Certificate path structure:
+#   Main domain: /root/cert-CF/{BaseDomain}/ (base domain extracted from full domain)
+#     Example: For nl-main.z3df1lter.uk -> /root/cert-CF/z3df1lter.uk/
+#   Subscription domain: /root/cert/{full-subdomain}/ (full subscription domain)
+#     Example: For sub.rqzbe.ir -> /root/cert/sub.rqzbe.ir/
+# This matches the user's existing certificate directory structure from Cloudflare
 
 msg_inf "Using existing SSL certificates from:"
 msg_inf "Main domain ($domain): /root/cert-CF/$BaseDomain/"

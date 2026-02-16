@@ -19,8 +19,10 @@
 - Subscription domain certificates should be at: `/root/cert/{subdomain}/`
 
 Example certificate paths:
-- Main domain (z3df1lter.uk): `/root/cert-CF/z3df1lter.uk/fullchain.pem` and `privkey.pem`
-- Sub domain (sub.rqzbe.ir): `/root/cert/sub.rqzbe.ir/fullchain.pem` and `privkey.pem`
+- Main domain (nl-main.z3df1lter.uk): Certs at `/root/cert-CF/z3df1lter.uk/fullchain.pem` and `privkey.pem`
+  - Note: Certificate path uses base domain (z3df1lter.uk) extracted from full domain (nl-main.z3df1lter.uk)
+- Sub domain (sub.rqzbe.ir): Certs at `/root/cert/sub.rqzbe.ir/fullchain.pem` and `privkey.pem`
+  - Note: Certificate path uses full subscription domain
 
 ```
 bash <(wget -qO- https://raw.githubusercontent.com/GFW4Fun/S-UI-PRO/master/s-ui-pro.sh) -install yes
