@@ -47,7 +47,7 @@ echo
 
 msg_inf "Step 4: Checking s-ui database for port 2096 settings..."
 echo "Port-related settings:"
-sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR value='2096';" 2>/dev/null || msg_err "Failed to query database"
+sqlite3 $SUIDB "SELECT key, value FROM settings WHERE key LIKE '%port%' OR CAST(value AS TEXT)='2096';" 2>/dev/null || msg_err "Failed to query database"
 echo
 
 echo "Inbounds using port 2096:"

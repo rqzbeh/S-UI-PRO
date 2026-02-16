@@ -86,7 +86,7 @@ sleep 2
 
 # Kill any processes still using the required ports
 msg_inf "Checking for processes using ports 80, 443, and 2096..."
-msg_inf "Any processes using these ports will be terminated..."
+msg_inf "WARNING: Any processes using these ports will be forcefully terminated!"
 fuser -k 80/tcp 80/udp 443/tcp 443/udp 2096/tcp 2096/udp 2>/dev/null
 sleep 2
 
@@ -309,7 +309,8 @@ if systemctl is-active --quiet s-ui; then
 	
 	# Verify nginx has port 2096
 	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
-		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
 		systemctl restart nginx
 		sleep 2
 	fi
@@ -337,7 +338,8 @@ else
 	
 	# Verify nginx has port 2096
 	if ! lsof -Pi :2096 -sTCP:LISTEN -c nginx >/dev/null 2>&1; then
-		msg_err "Warning: Nginx is not listening on port 2096. This may cause issues."
+		msg_err "Warning: Nginx is not listening on port 2096. The subscription service requires this."
+		msg_inf "Attempting to restart nginx..."
 		systemctl restart nginx
 		sleep 2
 	fi
