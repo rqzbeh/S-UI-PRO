@@ -106,34 +106,54 @@ if [[ ! -f "/root/cert/$subdomain/fullchain.pem" ]] || [[ ! -f "/root/cert/$subd
 fi
 
 ###########################################################################
+# Add WebSocket upgrade map to nginx.conf if not already present
+if ! grep -q "map \$http_upgrade \$connection_upgrade" /etc/nginx/nginx.conf; then
+	# Add WebSocket upgrade map after the http { line
+	cat > /tmp/websocket_map.conf << 'WSMAP'
+    # WebSocket and HTTP upgrade support
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+WSMAP
+	sed -i '/http {/r /tmp/websocket_map.conf' /etc/nginx/nginx.conf
+	rm -f /tmp/websocket_map.conf
+fi
+
+###########################################################################
 # Main VPN domain configuration (port 443)
-cat > "/etc/nginx/sites-available/$domain" << EOF
+cat > "/etc/nginx/sites-available/$domain" << 'NGXEOF'
 server {
-	server_name $domain;
+	server_name DOMAIN_PLACEHOLDER;
 	listen 80;
 	listen [::]:80;
 	return 301 https://\$server_name\$request_uri;
 }
 
 server {
-	server_name $domain;
+	server_name DOMAIN_PLACEHOLDER;
 	listen 443 ssl http2;
 	listen [::]:443 ssl http2;
 	http2_push_preload on;
 	index index.html index.htm index.php index.nginx-debian.html;
 	root /var/www/html/;
 	ssl_protocols TLSv1.2 TLSv1.3;
-	ssl_certificate /root/cert-CF/$BaseDomain/fullchain.pem;
-	ssl_certificate_key /root/cert-CF/$BaseDomain/privkey.pem;
+	ssl_certificate CERT_PATH_PLACEHOLDER/fullchain.pem;
+	ssl_certificate_key CERT_PATH_PLACEHOLDER/privkey.pem;
 	
-	location /$RNDSTR/ {
+	location /RNDSTR_PLACEHOLDER/ {
 		proxy_redirect off;
-		proxy_set_header Host \$host;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-		proxy_pass http://127.0.0.1:$PORT;
+		proxy_set_header X-Forwarded-Proto \$scheme;
+		proxy_pass http://127.0.0.1:PORT_PLACEHOLDER;
 	}
 	
+	# Dynamic port forwarding location with support for multiple transports
+	# Supports: WebSocket, gRPC, HTTP/2, HTTP upgrade, and standard HTTP/HTTPS
+	# Also supports Reality, Trojan, VLESS with custom SNI (preserves original Host header)
+	# For QUIC/Hysteria2/TUIC: These protocols typically use UDP and separate ports
 	location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)\$ {
 		client_max_body_size 0;
 		client_body_timeout 1d;
@@ -145,23 +165,23 @@ server {
 		proxy_request_buffering off;
 		proxy_socket_keepalive on;
 		proxy_set_header Upgrade \$http_upgrade;
-		proxy_set_header Connection "upgrade";
-		proxy_set_header Host \$host;
+		proxy_set_header Connection \$connection_upgrade;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-		if (\$content_type = "application/grpc") {
-			grpc_pass grpc://127.0.0.1:\$fwdport;
-			break;
-		}
-		if (\$http_upgrade = "websocket") {
-			proxy_pass http://127.0.0.1:\$fwdport/\$fwdport/\$fwdpath;
-			break;
-		}	
+		proxy_set_header X-Forwarded-Proto \$scheme;
+		proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath;
 	}
 	
 	location / { try_files \$uri \$uri/ =404; }
 }
-EOF
+NGXEOF
+
+# Replace placeholders with actual values
+sed -i "s|DOMAIN_PLACEHOLDER|$domain|g" "/etc/nginx/sites-available/$domain"
+sed -i "s|CERT_PATH_PLACEHOLDER|/root/cert-CF/$BaseDomain|g" "/etc/nginx/sites-available/$domain"
+sed -i "s|RNDSTR_PLACEHOLDER|$RNDSTR|g" "/etc/nginx/sites-available/$domain"
+sed -i "s|PORT_PLACEHOLDER|$PORT|g" "/etc/nginx/sites-available/$domain"
 
 # Subscription domain configuration (port 2096)
 cat > "/etc/nginx/sites-available/$subdomain" << EOF
@@ -183,9 +203,10 @@ server {
 	
 	location / {
 		proxy_redirect off;
-		proxy_set_header Host \$host;
+		proxy_set_header Host \$http_host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto \$scheme;
 		proxy_pass http://127.0.0.1:$PORT;
 	}
 }

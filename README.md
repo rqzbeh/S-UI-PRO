@@ -38,6 +38,154 @@ During installation, you'll be prompted to enter:
 >
 > Subscription domain provides subscription service on port 2096
 
+---
+
+## How to Configure Inbounds in S-UI :gear:
+
+After installation, you need to configure your inbounds in s-ui to work through the nginx reverse proxy. Here's how:
+
+### Access S-UI Panel
+- URL: `https://your-main-domain.com/RANDOM_PATH/`
+- The random path is shown after installation (save it!)
+- Login with the credentials provided during installation
+
+### Supported Transport Protocols
+
+The nginx configuration supports the following transports:
+- ✅ **WebSocket** - Recommended for most users
+- ✅ **gRPC** - Good for bypassing DPI
+- ✅ **HTTP/2** - Native support
+- ✅ **HTTP Upgrade** - Standard upgrade mechanism
+- ✅ **TCP** - Via HTTP proxy
+- ✅ **Reality Protocol** - With custom SNI support
+- ✅ **Trojan** - With different SNI values
+- ✅ **VLESS** - With custom serverNames
+
+**Note**: QUIC, Hysteria2, and TUIC use UDP and typically run on separate ports outside nginx.
+
+### Configuration Examples
+
+#### 1. WebSocket Inbound (Recommended)
+
+**In S-UI Panel:**
+- **Protocol**: VLESS, VMess, Trojan, or Shadowsocks
+- **Port**: Choose any port (e.g., 10001, 10002, etc.)
+- **Transport**: WebSocket
+- **Path**: `/10001/ws` (format: `/{PORT}/{ANY_PATH}`)
+- **Host**: Leave empty or use your domain
+
+**Client Configuration:**
+- **Address**: `your-main-domain.com`
+- **Port**: `443`
+- **TLS**: Enable
+- **SNI**: `your-main-domain.com` (or custom SNI for Reality)
+- **Path**: `/10001/ws`
+
+**How it works:**
+```
+Client → nginx:443 → nginx proxy → s-ui:10001
+```
+
+#### 2. gRPC Inbound
+
+**In S-UI Panel:**
+- **Protocol**: VLESS or VMess
+- **Port**: Choose any port (e.g., 10002)
+- **Transport**: gRPC
+- **ServiceName**: `10002/grpc` (format: `{PORT}/{SERVICE_NAME}`)
+- **Mode**: Multi or Gun mode
+
+**Client Configuration:**
+- **Address**: `your-main-domain.com`
+- **Port**: `443`
+- **TLS**: Enable
+- **SNI**: `your-main-domain.com`
+- **ServiceName**: `10002/grpc`
+
+#### 3. Reality Protocol with Custom SNI
+
+**In S-UI Panel:**
+- **Protocol**: VLESS-Reality
+- **Port**: Choose any port (e.g., 10003)
+- **Transport**: TCP or gRPC
+- **Path** (if using WebSocket): `/10003/reality`
+- **Dest (SNI)**: `www.google.com` or any legitimate site
+- **ServerNames**: `www.google.com`
+
+**Client Configuration:**
+- **Address**: `your-main-domain.com`
+- **Port**: `443`
+- **TLS**: Enable
+- **SNI**: `www.google.com` (matches your Reality dest)
+- **Path**: `/10003/reality` (if using WebSocket transport)
+
+**Important**: The nginx config uses `$http_host` to preserve your custom SNI, so Reality will work correctly!
+
+#### 4. HTTP/2 (h2) Inbound
+
+**In S-UI Panel:**
+- **Protocol**: VLESS or VMess
+- **Port**: Choose any port (e.g., 10004)
+- **Transport**: HTTP/2
+- **Path**: `/10004/h2`
+- **Host**: `your-main-domain.com`
+
+**Client Configuration:**
+- **Address**: `your-main-domain.com`
+- **Port**: `443`
+- **TLS**: Enable
+- **Path**: `/10004/h2`
+
+### Important Rules for Port/Path Configuration
+
+**The Dynamic Routing Pattern:**
+The nginx configuration includes a dynamic location that matches: `/{PORT}/{PATH}`
+
+This means:
+- Use format: `/{YOUR_BACKEND_PORT}/{ANY_PATH}` 
+- Example: If s-ui listens on port `10001`, use path `/10001/ws` or `/10001/anything`
+- The nginx will automatically proxy to `127.0.0.1:10001`
+
+**Examples:**
+```
+/10001/ws        → proxies to 127.0.0.1:10001/ws
+/10002/grpc      → proxies to 127.0.0.1:10002/grpc
+/10003/reality   → proxies to 127.0.0.1:10003/reality
+/12345/mypath    → proxies to 127.0.0.1:12345/mypath
+```
+
+### Best Practices
+
+1. **Use Different Ports**: Create each inbound on a different port (10001, 10002, 10003, etc.)
+2. **Match Path Format**: Always use `/{PORT}/{PATH}` format for the path
+3. **Enable TLS on Client**: Always enable TLS in client and use port 443
+4. **Custom SNI for Reality**: The configuration preserves custom SNI, so Reality works perfectly
+5. **WebSocket Recommended**: WebSocket transport is most reliable through nginx
+6. **Test Each Inbound**: After creating an inbound, test it before sharing with users
+
+### Troubleshooting
+
+**Connection Failed:**
+- Check that the inbound port in s-ui matches the port in your path
+- Verify TLS is enabled on the client side
+- Ensure you're using port 443 (not the backend port)
+
+**Reality Not Working:**
+- Make sure the SNI on client matches the Reality `dest` configured in s-ui
+- The nginx config uses `$http_host` which preserves custom SNI
+
+**WebSocket Connection Issues:**
+- Check that the path starts with `/{PORT}/`
+- Verify nginx has the WebSocket upgrade map configured (automatically added during installation)
+
+### Subscription Service
+
+The subscription domain works on port **2096** with SSL:
+- **URL Format**: `https://sub-domain.com:2096/sub/{USERNAME}?format=json`
+- This bypasses nginx port routing and goes directly through SSL
+
+---
+
 ### Reverse Proxy Options for DPI Bypass :shield:
 
 This project uses **Nginx** as the reverse proxy, which is well-suited for bypassing Deep Packet Inspection (DPI) in Iran and similar censorship environments. However, you might wonder about alternatives:
@@ -79,6 +227,20 @@ The key to bypassing DPI is not the reverse proxy choice, but rather:
 - Proper WebSocket/gRPC configuration (already included)
 - Random path obfuscation (implemented via `$RNDSTR`)
 - TLS 1.3 support (enabled in config)
+
+---
+
+## Quick Reference Table :bookmark_tabs:
+
+| Transport | S-UI Port | S-UI Path/Service | Client Address | Client Port | Client Path/Service |
+|-----------|-----------|-------------------|----------------|-------------|---------------------|
+| WebSocket | 10001 | `/10001/ws` | main-domain.com | 443 | `/10001/ws` |
+| gRPC | 10002 | `10002/grpc` | main-domain.com | 443 | `10002/grpc` |
+| HTTP/2 | 10003 | `/10003/h2` | main-domain.com | 443 | `/10003/h2` |
+| Reality+WS | 10004 | `/10004/reality` | main-domain.com | 443 | `/10004/reality` |
+| TCP | 10005 | `/10005/tcp` | main-domain.com | 443 | `/10005/tcp` |
+
+**Pattern**: Always use `/{S-UI_PORT}/{ANY_PATH}` format for dynamic routing!
 
 ➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
 
